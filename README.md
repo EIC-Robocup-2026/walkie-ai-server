@@ -1,0 +1,210 @@
+# 🤖 Walkie AI Server
+
+> 🚀 A multimodal AI inference server powered by Flask, serving vision, speech, and language models through a clean REST API.
+
+---
+
+## 📖 Overview
+
+**Walkie AI Server** is a self-hosted Flask application that bundles multiple AI capabilities into a single service. It uses a **provider-based architecture** so you can swap between local and cloud backends for each feature — run everything on your own GPU or delegate to cloud APIs. ☁️⚡
+
+---
+
+## ✨ Features
+
+| Feature | Description | Providers |
+|---------|-------------|-----------|
+| **Speech-to-Text** | Transcribe audio to text | `whisper` (local), `google` (Cloud Speech) |
+| **Text-to-Speech** | Synthesize natural speech from text | `piper` (local ONNX), `elevenlabs` (cloud) |
+| **Object Detection** | Detect & classify objects in images | `yolo` (Ultralytics / Objects365) |
+| **Pose Estimation** | Detect human body keypoints (17 COCO) | `yolo_pose` (Ultralytics) |
+| **Image Captioning** | Generate captions / answer visual questions | `florence2`, `paligemma`, `google` (Gemini) |
+| **LLM Serving** | Optional vLLM / Ollama sidecar | Qwen 3.5-9B (quantized) |
+
+
+## 🚀 Getting Started
+
+### 📋 Prerequisites
+
+- 🐍 Python **3.12+**
+- 📦 [uv](https://docs.astral.sh/uv/) package manager
+- 🎮 NVIDIA GPU recommended (CUDA-capable) for local inference
+
+### ⚙️ Installation
+
+```bash
+# 1️⃣ Clone the repository
+git clone https://github.com/your-org/walkie-ai-server.git
+cd walkie-ai-server
+
+# 2️⃣ Install dependencies with uv
+uv sync
+
+# 3️⃣ Set up environment variables
+cp .env.example .env  # edit with your API keys
+```
+
+### 🔑 Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ELEVENLABS_API_KEY` | 🟡 Optional | ElevenLabs TTS API key |
+| `GOOGLE_API_KEY` | 🟡 Optional | Google Gemini API key |
+| `GOOGLE_CLOUD_PROJECT` | 🟡 Optional | GCP project for Cloud Speech |
+| `GOOGLE_APPLICATION_CREDENTIALS` | 🟡 Optional | Path to GCP service account JSON |
+| `HF_TOKEN` | 🟡 Optional | Hugging Face token for gated models |
+
+> 💡 Only needed if you use the corresponding cloud providers. Local-only setups require no API keys!
+
+### ▶️ Running the Server
+
+```bash
+# 🟢 Start the Flask API server on port 5000
+./scripts/run_app.sh
+```
+
+```bash
+# 🧠 (Optional) Start the LLM sidecar on port 8000
+./scripts/serve_llm.sh          # vLLM (default)
+./scripts/serve_llm.sh ollama   # or Ollama
+```
+
+
+## 📡 API Reference
+
+All endpoints return JSON in the format:
+
+```json
+{ "success": true, "data": { ... } }
+```
+
+Or on error:
+
+```json
+{ "success": false, "error": "description" }
+```
+
+### 🏠 Index
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | 📋 List available models & endpoints |
+
+### 🎤 Speech-to-Text (`/stt`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/stt/providers` | 📋 List STT providers |
+| `POST` | `/stt/transcribe` | 🎙️ Transcribe audio file (multipart `audio`) |
+
+### 🔊 Text-to-Speech (`/tts`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/tts/providers` | 📋 List TTS providers |
+| `POST` | `/tts/synthesize` | 🗣️ Synthesize speech (returns audio bytes) |
+| `POST` | `/tts/synthesize-stream` | 🌊 Streamed synthesis |
+
+### 🔍 Object Detection (`/object-detection`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/object-detection/providers` | 📋 List detection providers |
+| `POST` | `/object-detection/detect` | 📦 Detect objects in image (multipart `image`) |
+
+### 🏃 Pose Estimation (`/pose-estimation`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/pose-estimation/providers` | 📋 List pose providers |
+| `POST` | `/pose-estimation/estimate` | 🦴 Estimate body keypoints (multipart `image`) |
+
+### 🖼️ Image Captioning (`/image-caption`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/image-caption/providers` | 📋 List caption providers |
+| `POST` | `/image-caption/caption` | 💬 Caption a single image |
+| `POST` | `/image-caption/caption-batch` | 📚 Caption multiple images |
+
+---
+
+## 🧪 Testing
+
+Tests are integration-style and require a **running server**:
+
+```bash
+# 1️⃣ Start the server in one terminal
+./scripts/run_app.sh
+
+# 2️⃣ Run tests in another terminal
+uv run pytest tests/
+
+# 🎯 Run a specific test module
+uv run pytest tests/test_stt.py
+
+# 🌐 Test against a different host
+uv run pytest tests/ --base-url http://your-server:5000
+```
+
+## 🏗️ Architecture
+
+```
+walkie-ai-server/
+├── app.py                  # Flask entrypoint (port 5000)
+├── pyproject.toml          # Dependencies & project metadata
+├── uv.lock                 # Locked dependency versions
+│
+├── 📂 api/
+│   ├── __init__.py            # App factory & blueprint registration
+│   ├── utils.py               # JSON helpers, image decoding, base64
+│   └── 📂 routes/             # One blueprint per feature
+│       ├── stt.py             # 🎤 /stt/*
+│       ├── tts.py             # 🔊 /tts/*
+│       ├── object_detection.py# 🔍 /object-detection/*
+│       ├── pose_estimation.py # 🏃 /pose-estimation/*
+│       ├── image_caption.py   # 🖼️ /image-caption/*
+│       └── image_embed.py     # 🔗 /image-embed/* (disabled)
+│
+├── 📂 services/               # Provider pattern — abstract base + implementations
+│   ├── stt/
+│   │   ├── base.py
+│   │   └── providers/         # whisper.py, google.py
+│   ├── tts/
+│   │   ├── base.py
+│   │   └── providers/         # piper_tts.py, elevenlabs.py
+│   ├── object_detection/
+│   │   ├── base.py
+│   │   └── providers/         # yolo.py
+│   ├── pose_estimation/
+│   │   ├── base.py
+│   │   └── providers/         # yolo_pose.py
+│   ├── image_caption/
+│   │   ├── base.py
+│   │   └── providers/         # florence2_large.py, paligemma.py, google_caption.py
+│   └── image_embed/
+│       ├── base.py
+│       └── providers/         # clip.py
+│
+├── 📂 scripts/
+│   ├── run_app.sh             # 🟢 Start the Flask server
+│   └── serve_llm.sh           # 🧠 Start vLLM / Ollama sidecar
+│
+├── 📂 tests/                  # 🧪 Integration tests (pytest + requests)
+│   ├── conftest.py
+│   ├── test_stt.py
+│   ├── test_tts.py
+│   ├── test_object_detection.py
+│   ├── test_pose_estimation.py
+│   └── test_image_caption.py
+│
+└── 📂 voices/                 # 🗣️ Piper TTS voice assets (.onnx)
+```
+
+---
+
+<div align="center">
+
+🛠️ Built with ❤️ by **Your Mom**
+
+</div>

@@ -11,7 +11,7 @@ from ..base import ImageCaptionProvider
 
 
 class Florence2LargeImageCaptionProvider(ImageCaptionProvider):
-    """Florence-2-large image captioning provider using HuggingFace Transformers (local)."""
+    """Florence-2-large image captioning provider using HuggingFace Transformers."""
 
     DEFAULT_MODEL = "florence-community/Florence-2-large"
     DEFAULT_PROMPT = "<DETAILED_CAPTION>"
@@ -23,7 +23,7 @@ class Florence2LargeImageCaptionProvider(ImageCaptionProvider):
 
         Args:
             config: Provider configuration with optional keys:
-                - model: HuggingFace model id (default: "microsoft/Florence-2-large")
+                - model: HuggingFace model id (default: "florence-community/Florence-2-large")
                 - device: "cuda" or "cpu" (default: "cuda" if available)
                 - default_prompt: Florence-2 task prompt (default: "<DETAILED_CAPTION>")
                 - max_new_tokens: Max tokens to generate (default: 1024)

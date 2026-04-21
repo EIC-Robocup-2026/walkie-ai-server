@@ -42,7 +42,6 @@ SKELETON_CONNECTIONS: tuple[tuple[int, int], ...] = (
     (11, 13), (13, 15), (12, 14), (14, 16),
 )
 
-
 @dataclass
 class PoseKeypoint:
     """A single detected keypoint on a person."""
