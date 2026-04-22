@@ -36,14 +36,14 @@ class YOLOPoseEstimationProvider(PoseEstimationProvider):
     forward pass, so no separate person-detection step is needed.
     """
 
-    DEFAULT_MODEL = "yolo26m-pose.pt"
+    DEFAULT_MODEL = "yolo26s-pose.pt"
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialise the YOLO pose provider.
 
         Args:
             config: Optional keys:
-                - model: Model name or path (default ``"yolo26m-pose.pt"``).
+                - model: Model name or path (default ``"yolo26s-pose.pt"``).
                     Ultralytics will auto-download if not present locally.
                 - device: ``"cuda"`` or ``"cpu"`` (default: auto).
                 - conf_threshold: Min person confidence (default 0.25).
@@ -157,10 +157,6 @@ class YOLOPoseEstimationProvider(PoseEstimationProvider):
                 abs(y2p - y1p),
             )
 
-            # Crop the person region.
-            crop_rgb = img_rgb[y1p:y2p, x1p:x2p]
-            crop_pil = Image.fromarray(crop_rgb)
-
             # Build keypoints list.
             keypoints: list[PoseKeypoint] = []
             if kpts_data is not None:
@@ -177,7 +173,6 @@ class YOLOPoseEstimationProvider(PoseEstimationProvider):
                     bbox=bbox,
                     confidence=confidence,
                     keypoints=keypoints,
-                    cropped_image=crop_pil,
                 )
             )
 

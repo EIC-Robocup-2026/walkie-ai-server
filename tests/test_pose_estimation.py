@@ -75,7 +75,6 @@ def test_pose_estimation_estimate_pose_shape(base_url, sample_image_bytes):
         assert "bbox" in pose
         assert "confidence" in pose
         assert "keypoints" in pose
-        assert "cropped_image_b64" in pose
         assert len(pose["bbox"]) == 4
         assert 0.0 <= pose["confidence"] <= 1.0
         assert isinstance(pose["keypoints"], list)

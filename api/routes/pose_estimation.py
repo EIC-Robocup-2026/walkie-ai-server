@@ -50,5 +50,4 @@ def _serialize_pose(pose: PersonPose) -> dict:
         "bbox": list(pose.bbox),
         "confidence": pose.confidence,
         "keypoints": [_serialize_keypoint(kp) for kp in pose.keypoints],
-        "cropped_image_b64": pil_to_b64(pose.cropped_image),
     }

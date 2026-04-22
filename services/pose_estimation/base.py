@@ -69,8 +69,6 @@ class PersonPose:
     """Person detection confidence."""
     keypoints: list[PoseKeypoint] = field(default_factory=list)
     """List of 17 COCO keypoints."""
-    cropped_image: Image.Image | None = None
-    """Cropped region of the person with optional padding."""
 
 
 @dataclass

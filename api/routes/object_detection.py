@@ -42,6 +42,5 @@ def _serialize_detection(obj: DetectedObject) -> dict:
         "class_id": obj.class_id,
         "class_name": obj.class_name,
         "confidence": obj.confidence,
-        "cropped_image_b64": pil_to_b64(obj.cropped_image),
         "mask_b64": mask_to_b64(obj.mask),
     }

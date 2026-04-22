@@ -154,10 +154,6 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
             y2p = min(h, y2 + pad)
             if x2p <= x1p or y2p <= y1p:
                 continue
-            crop_rgb = img_rgb[y1p:y2p, x1p:x2p]
-            crop_pil = Image.fromarray(crop_rgb)
-            # bbox = (x1p, y1p, x2p, y2p)
-            bbox = ((x1p+x2p)//2, (y1p+y2p)//2, abs(x2p - x1p), abs(y2p - y1p))  # cx, cy, w, h
             class_id = int(cls_ids[idx])
             class_name = names.get(class_id, "unknown")
             confidence = float(confs[idx])
@@ -166,7 +162,6 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
                     mask=None,
                     bbox=[x1p, y1p, x2p, y2p],
                     area_ratio=area_ratio,
-                    cropped_image=crop_pil,
                     class_id=class_id,
                     class_name=class_name,
                     confidence=confidence,
