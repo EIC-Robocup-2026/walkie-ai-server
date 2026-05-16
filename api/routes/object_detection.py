@@ -3,6 +3,7 @@
 from flask import Blueprint, request
 
 from api.utils import error, image_from_request_file, mask_to_b64, pil_to_b64, success
+from services import debug_viewer
 from services.object_detection import ObjectDetection
 from services.object_detection.base import DetectedObject
 
@@ -32,6 +33,7 @@ def detect():
     except Exception as exc:
         return error(str(exc), 500)
 
+    debug_viewer.show_object_detection(image, detections)
     return success([_serialize_detection(d) for d in detections])
 
 

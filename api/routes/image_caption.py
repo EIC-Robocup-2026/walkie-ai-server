@@ -3,6 +3,7 @@
 from flask import Blueprint, request
 
 from api.utils import error, image_from_request_file, success
+from services import debug_viewer
 from services.image_caption import ImageCaption
 
 bp = Blueprint("image_caption", __name__, url_prefix="/image-caption")
@@ -33,6 +34,7 @@ def caption():
     except Exception as exc:
         return error(str(exc), 500)
 
+    debug_viewer.show_image_caption(image, result)
     return success({"caption": result})
 
 
@@ -55,4 +57,6 @@ def caption_batch():
     except Exception as exc:
         return error(str(exc), 500)
 
+    if images and results:
+        debug_viewer.show_image_caption(images[-1], results[-1])
     return success({"captions": results})

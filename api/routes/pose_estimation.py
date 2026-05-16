@@ -3,6 +3,7 @@
 from flask import Blueprint, request
 
 from api.utils import error, image_from_request_file, pil_to_b64, success
+from services import debug_viewer
 from services.pose_estimation import PoseEstimation
 from services.pose_estimation.base import PersonPose, PoseKeypoint
 
@@ -32,6 +33,7 @@ def estimate():
     except Exception as exc:
         return error(str(exc), 500)
 
+    debug_viewer.show_pose_estimation(image, poses)
     return success([_serialize_pose(p) for p in poses])
 
 
