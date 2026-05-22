@@ -8,7 +8,7 @@ from services.image_caption import ImageCaption
 
 bp = Blueprint("image_caption", __name__, url_prefix="/image-caption")
 
-_ic = ImageCaption(provider="florence2")
+_ic = ImageCaption(provider="florence2-base")
 _ic.load_model()
 
 

@@ -6,40 +6,50 @@ To add a new provider:
 3. Register it in PROVIDERS dict below
 """
 
-from typing import Any
+from typing import Any, Callable
 
 from ..base import ImageCaptionProvider
-from .florence2_large import Florence2LargeImageCaptionProvider
+from .florence2 import Florence2ImageCaptionProvider
 from .google_caption import GoogleImageCaptionProvider
 from .paligemma import PaliGemmaImageCaptionProvider
 
+ProviderFactory = Callable[[dict[str, Any]], ImageCaptionProvider]
+
+
+def _florence2(variant: str) -> ProviderFactory:
+    def factory(config: dict[str, Any]) -> ImageCaptionProvider:
+        return Florence2ImageCaptionProvider({"variant": variant, **config})
+    return factory
+
+
 # Provider registry - add new providers here
-PROVIDERS: dict[str, type[ImageCaptionProvider]] = {
+PROVIDERS: dict[str, ProviderFactory] = {
     "google": GoogleImageCaptionProvider,
     "paligemma": PaliGemmaImageCaptionProvider,
-    "florence2": Florence2LargeImageCaptionProvider,
+    "florence2-base": _florence2("base"),
+    "florence2-large": _florence2("large"),
 }
 
 
 def get_provider(name: str, config: dict[str, Any]) -> ImageCaptionProvider:
     """Get an image captioning provider instance by name.
-    
+
     Args:
         name: Provider name (must be registered in PROVIDERS).
         config: Provider-specific configuration.
-        
+
     Returns:
         Configured ImageCaptionProvider instance.
-        
+
     Raises:
         ValueError: If provider is not registered.
     """
-    provider_class = PROVIDERS.get(name)
-    if provider_class is None:
+    factory = PROVIDERS.get(name)
+    if factory is None:
         available = ", ".join(PROVIDERS.keys())
         raise ValueError(f"Unknown image captioning provider: '{name}'. Available: {available}")
-    
-    return provider_class(config)
+
+    return factory(config)
 
 
 def list_providers() -> list[str]:
