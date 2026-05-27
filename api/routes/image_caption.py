@@ -8,8 +8,15 @@ from services.image_caption import ImageCaption
 
 bp = Blueprint("image_caption", __name__, url_prefix="/image-caption")
 
-_ic = ImageCaption(provider="florence2-base")
-_ic.load_model()
+_ic: ImageCaption | None = None
+
+
+def _get_ic() -> ImageCaption:
+    global _ic
+    if _ic is None:
+        _ic = ImageCaption(provider="florence2-base")
+        _ic.load_model()
+    return _ic
 
 
 @bp.get("/providers")
@@ -30,7 +37,7 @@ def caption():
     prompt = request.form.get("prompt")
 
     try:
-        result = _ic.caption(image, prompt=prompt)
+        result = _get_ic().caption(image, prompt=prompt)
     except Exception as exc:
         return error(str(exc), 500)
 
@@ -53,7 +60,7 @@ def caption_batch():
     prompts = prompts_raw if prompts_raw else None
 
     try:
-        results = _ic.caption_batch(images, prompts=prompts)
+        results = _get_ic().caption_batch(images, prompts=prompts)
     except Exception as exc:
         return error(str(exc), 500)
 
