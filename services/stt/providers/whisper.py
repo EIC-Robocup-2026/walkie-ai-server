@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import numpy as np
+import torch
 
 from ..base import STTProvider
 
@@ -38,14 +39,18 @@ class WhisperSTTProvider(STTProvider):
             config: Provider configuration with optional keys:
                 - model_name: Model size (default: "small")
                   Options: "tiny", "base", "small", "medium", "large-v3"
-                - device: Compute device "cuda" or "cpu" (default: "cuda")
+                - device: Compute device "cuda" or "cpu"
+                  (default: "cuda" if available, else "cpu")
                 - language: Target language code (default: "en")
                 - compute_type: Quantization "float16", "int8", "float32" (default: "float16")
                 - beam_size: Beam size for decoding (default: 5)
                 - vad_filter: Use VAD filtering (default: True)
         """
         self.model_name = config.get("model_name", "small")
-        self.device = config.get("device", "cuda")
+        device = config.get("device")
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
         self.language = config.get("language", "en")
         self.compute_type = config.get("compute_type", "float16")
         self.beam_size = config.get("beam_size", 5)
@@ -55,50 +60,59 @@ class WhisperSTTProvider(STTProvider):
         self._load_model()
 
     def _load_model(self) -> None:
-        """Load the Whisper model for inference using faster-whisper."""
-        logger.info(
-            f"Loading Whisper model: {self.model_name} "
-            f"(device={self.device}, compute_type={self.compute_type})"
-        )
-        
+        """Load the Whisper model, falling back to CPU if CUDA is unavailable."""
         try:
             from faster_whisper import WhisperModel
-            
-            # Try with configured compute_type first
-            try:
-                self.model = WhisperModel(
-                    self.model_name,
-                    device=self.device,
-                    compute_type=self.compute_type,
-                )
-            except Exception as e:
-                # Fall back to int8 if float16 not supported (e.g., on Mac)
-                if "float16" in str(e).lower() or "float16" in self.compute_type:
-                    logger.warning(
-                        f"compute_type '{self.compute_type}' not supported, "
-                        "falling back to int8..."
-                    )
-                    self.compute_type = "int8"
-                    self.model = WhisperModel(
-                        self.model_name,
-                        device=self.device,
-                        compute_type="int8",
-                    )
-                else:
-                    raise
-            
-            logger.info(
-                f"Whisper model loaded: {self.model_name} "
-                f"(compute_type={self.compute_type})"
-            )
-            
         except ImportError:
             raise ImportError(
                 "faster-whisper is required for Whisper provider. "
                 "Install with: pip install faster-whisper"
             )
+
+        logger.info(
+            f"Loading Whisper model: {self.model_name} "
+            f"(device={self.device}, compute_type={self.compute_type})"
+        )
+
+        try:
+            self.model = self._build_model(WhisperModel, self.device, self.compute_type)
         except Exception as e:
-            logger.error(f"Failed to load Whisper model: {e}")
+            # CUDA may be requested but unavailable, or have a driver/runtime
+            # mismatch; fall back to CPU so the server can still start.
+            if self.device != "cpu":
+                logger.warning(
+                    f"Failed to load Whisper on '{self.device}' ({e}); "
+                    "falling back to CPU (compute_type=int8)..."
+                )
+                self.device = "cpu"
+                self.compute_type = "int8"
+                self.model = self._build_model(WhisperModel, "cpu", "int8")
+            else:
+                logger.error(f"Failed to load Whisper model: {e}")
+                raise
+
+        logger.info(
+            f"Whisper model loaded: {self.model_name} "
+            f"(device={self.device}, compute_type={self.compute_type})"
+        )
+
+    def _build_model(self, whisper_model_cls, device: str, compute_type: str):
+        """Instantiate WhisperModel, downgrading float16 to int8 if unsupported."""
+        try:
+            return whisper_model_cls(
+                self.model_name, device=device, compute_type=compute_type
+            )
+        except Exception as e:
+            # Fall back to int8 if float16 not supported (e.g., on CPU / Mac)
+            if "float16" in str(e).lower() or "float16" in compute_type:
+                logger.warning(
+                    f"compute_type '{compute_type}' not supported on {device}, "
+                    "falling back to int8..."
+                )
+                self.compute_type = "int8"
+                return whisper_model_cls(
+                    self.model_name, device=device, compute_type="int8"
+                )
             raise
 
     def transcribe(

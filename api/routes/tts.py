@@ -1,4 +1,4 @@
-"""TTS (Text-to-Speech) blueprint — ElevenLabs provider, loaded at startup."""
+"""TTS (Text-to-Speech) blueprint — ElevenLabs provider, lazy-loaded on first request."""
 
 from flask import Blueprint, Response, request, stream_with_context
 
@@ -7,8 +7,8 @@ from services.tts import TTS
 
 bp = Blueprint("tts", __name__, url_prefix="/tts")
 
-# _tts = TTS(provider="elevenlabs", voice_id="fDeOZu1sNd7qahm2fV4k")
-_tts = TTS(provider="piper", voice_path="voices/en_US-lessac-medium.onnx")
+_tts: TTS | None = None
+_audio_content_type: str | None = None
 
 
 def _infer_content_type(formats: list[str]) -> str:
@@ -25,7 +25,13 @@ def _infer_content_type(formats: list[str]) -> str:
     return "application/octet-stream"
 
 
-_audio_content_type = _infer_content_type(_tts.get_supported_formats())
+def _get_tts() -> tuple[TTS, str]:
+    global _tts, _audio_content_type
+    if _tts is None:
+        _tts = TTS(provider="elevenlabs", voice_id="fDeOZu1sNd7qahm2fV4k")
+        _audio_content_type = _infer_content_type(_tts.get_supported_formats())
+    assert _audio_content_type is not None
+    return _tts, _audio_content_type
 
 
 @bp.get("/providers")
@@ -41,11 +47,12 @@ def synthesize():
         return error("Missing 'text' field")
 
     try:
-        audio_bytes = _tts.synthesize(text)
+        tts, content_type = _get_tts()
+        audio_bytes = tts.synthesize(text)
     except Exception as exc:
         return error(str(exc), 500)
 
-    return Response(audio_bytes, mimetype=_audio_content_type)
+    return Response(audio_bytes, mimetype=content_type)
 
 
 @bp.post("/synthesize-stream")
@@ -56,10 +63,12 @@ def synthesize_stream():
         return error("Missing 'text' field")
 
     try:
+        tts, content_type = _get_tts()
+
         def generate():
-            for chunk in _tts.synthesize_stream(text):
+            for chunk in tts.synthesize_stream(text):
                 yield chunk
     except Exception as exc:
         return error(str(exc), 500)
 
-    return Response(stream_with_context(generate()), mimetype=_audio_content_type)
+    return Response(stream_with_context(generate()), mimetype=content_type)
