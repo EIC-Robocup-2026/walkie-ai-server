@@ -16,7 +16,7 @@
 |---------|-------------|-----------|
 | **Speech-to-Text** | Transcribe audio to text | `whisper` (local), `google` (Cloud Speech) |
 | **Text-to-Speech** | Synthesize natural speech from text | `piper` (local ONNX), `elevenlabs` (cloud) |
-| **Object Detection** | Detect & classify objects in images | `yolo` (Ultralytics / Objects365) |
+| **Object Detection** | Detect & classify objects in images | `yolo` (Ultralytics / Objects365), `sam3` (open-vocab concept segmentation + masks) |
 | **Pose Estimation** | Detect human body keypoints (17 COCO) | `yolo_pose` (Ultralytics) |
 | **Image Captioning** | Generate captions / answer visual questions | `florence2`, `paligemma`, `google` (Gemini) |
 | **LLM Serving** | Optional vLLM / Ollama sidecar | Qwen 3.5-9B (quantized) |
@@ -53,6 +53,8 @@ cp .env.example .env  # edit with your API keys
 | `GOOGLE_CLOUD_PROJECT` | 🟡 Optional | GCP project for Cloud Speech |
 | `GOOGLE_APPLICATION_CREDENTIALS` | 🟡 Optional | Path to GCP service account JSON |
 | `HF_TOKEN` | 🟡 Optional | Hugging Face token for gated models |
+| `OBJECT_DETECTION_PROVIDER` | 🟡 Optional | Object-detection backend: `yolo` (default) or `sam3` |
+| `SAM3_MODEL` | 🟡 Optional | Path to `sam3.pt` weights (required when provider is `sam3`) |
 
 > 💡 Only needed if you use the corresponding cloud providers. Local-only setups require no API keys!
 
@@ -61,6 +63,11 @@ cp .env.example .env  # edit with your API keys
 ```bash
 # 🟢 Start the Flask API server on port 5000
 ./scripts/run_app.sh
+```
+
+```bash
+# 🧩 (Optional) Start with SAM3 open-vocab object detection
+SAM3_MODEL=/path/to/sam3.pt ./scripts/run_sam3.sh
 ```
 
 ```bash
@@ -110,7 +117,9 @@ Or on error:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/object-detection/providers` | 📋 List detection providers |
-| `POST` | `/object-detection/detect` | 📦 Detect objects in image (multipart `image`) |
+| `POST` | `/object-detection/detect` | 📦 Detect objects in image (multipart `image`; optional `prompts` for SAM3) |
+
+> 🧩 **SAM3 (open-vocabulary):** when running with `OBJECT_DETECTION_PROVIDER=sam3`, pass text concepts via a `prompts` form field (comma-separated or repeated) to find arbitrary objects, e.g. `-F prompts="red mug,cereal box"`. Responses include a base64 segmentation `mask_b64` per detection. YOLO ignores `prompts`.
 
 ### 🏃 Pose Estimation (`/pose-estimation`)
 
@@ -175,7 +184,7 @@ walkie-ai-server/
 │   │   └── providers/         # piper_tts.py, elevenlabs.py
 │   ├── object_detection/
 │   │   ├── base.py
-│   │   └── providers/         # yolo.py
+│   │   └── providers/         # yolo.py, sam3.py
 │   ├── pose_estimation/
 │   │   ├── base.py
 │   │   └── providers/         # yolo_pose.py
@@ -188,6 +197,7 @@ walkie-ai-server/
 │
 ├── 📂 scripts/
 │   ├── run_app.sh             # 🟢 Start the Flask server
+│   ├── run_sam3.sh            # 🧩 Start with SAM3 object detection
 │   └── serve_llm.sh           # 🧠 Start vLLM / Ollama sidecar
 │
 ├── 📂 tests/                  # 🧪 Integration tests (pytest + requests)

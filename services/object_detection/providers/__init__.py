@@ -3,10 +3,12 @@
 from typing import Any
 
 from ..base import ObjectDetectionProvider
+from .sam3 import SAM3ObjectDetectionProvider
 from .yolo import YOLOObjectDetectionProvider
 
 PROVIDERS: dict[str, type[ObjectDetectionProvider]] = {
     "yolo": YOLOObjectDetectionProvider,
+    "sam3": SAM3ObjectDetectionProvider,
 }
 
 

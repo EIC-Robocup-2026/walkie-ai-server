@@ -99,8 +99,16 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
         model_path = _get_model_path(self._config)
         self._model = YOLO(model_path)
 
-    def detect(self, image: Image.Image) -> list[DetectedObject]:
-        """Run YOLO inference and return detections as DetectedObject list."""
+    def detect(
+        self,
+        image: Image.Image,
+        prompts: list[str] | None = None,
+    ) -> list[DetectedObject]:
+        """Run YOLO inference and return detections as DetectedObject list.
+
+        ``prompts`` is accepted for interface compatibility with concept
+        providers (e.g. SAM3) but ignored — YOLO uses its fixed class set.
+        """
         self._ensure_loaded()
         assert self._model is not None
         img_rgb = np.array(image)
