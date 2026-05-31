@@ -44,9 +44,19 @@ class ObjectDetection:
         """Pre-load the provider's model weights into memory."""
         self._provider.load_model()
 
-    def detect(self, image: Image.Image) -> list[DetectedObject]:
-        """Detect objects in an image."""
-        return self._provider.detect(image)
+    def detect(
+        self,
+        image: Image.Image,
+        prompts: list[str] | None = None,
+    ) -> list[DetectedObject]:
+        """Detect objects in an image.
+
+        Args:
+            image: PIL Image (RGB) to process.
+            prompts: Optional text prompts for concept-segmentation providers
+                (e.g. SAM3). Ignored by fixed-class providers (e.g. YOLO).
+        """
+        return self._provider.detect(image, prompts)
 
     def get_model_name(self) -> str:
         """Model name for logging."""

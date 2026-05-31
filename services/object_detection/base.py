@@ -23,11 +23,18 @@ class ObjectDetectionProvider(ABC):
     """Abstract base class for object detection/segmentation providers."""
 
     @abstractmethod
-    def detect(self, image: Image.Image) -> list[DetectedObject]:
+    def detect(
+        self,
+        image: Image.Image,
+        prompts: list[str] | None = None,
+    ) -> list[DetectedObject]:
         """Detect and segment objects in an image.
 
         Args:
             image: PIL Image (RGB) to process.
+            prompts: Optional open-vocabulary text prompts (noun phrases) to
+                look for. Used by concept-segmentation providers such as SAM3;
+                ignored by fixed-class providers such as YOLO.
 
         Returns:
             List of DetectedObject with mask, bbox, area_ratio.
