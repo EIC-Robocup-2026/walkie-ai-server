@@ -23,19 +23,57 @@ from PIL import Image
 from ..base import DetectedObject, ObjectDetectionProvider
 
 # Default open-vocabulary concepts used when no per-request prompts are given.
-# Kept broad so the provider behaves like a general detector out of the box;
-# override via the ``prompts`` config key or per-request prompts.
+# This is the RoboCup@Home known-object set (GermanOpen 2026 / 2026-season
+# rulebook), grouped by the official Object Categories. Override via the
+# ``prompts`` config key or per-request prompts.
+# Source: https://github.com/RoboCupAtHome/GermanOpen2026 (objects/known_objects)
 _DEFAULT_PROMPTS: tuple[str, ...] = (
-    "person",
-    "bottle",
-    "cup",
+    # cleaning supplies
+    "cloth",
+    "sponge",
+    # dishes
     "bowl",
-    "box",
-    "bag",
-    "chair",
-    "table",
-    "book",
-    "food",
+    "cup",
+    "fork",
+    "knife",
+    "plate",
+    "spoon",
+    # drinks
+    "coffee creamer",
+    "coke",
+    "ice tea",
+    "milk",
+    "orange juice",
+    "red bull",
+    "water bottle",
+    # foods
+    "bread",
+    "cornflakes",
+    "instant noodles",
+    "potato",
+    "tomato soup",
+    # fruits
+    "apple",
+    "avocado",
+    "lemon",
+    "orange",
+    # snacks
+    "chips",
+    "cookies",
+    "gum",
+    "mixed nuts",
+    "pringles",
+    # toiletries
+    "hand creme",
+    "soap",
+    "toothpaste",
+    # furniture / scene
+    "large shelf",
+    "dish rack",
+    "shelf",
+    "monitor",
+    "bed",
+    "pillow",
 )
 
 # Lazy imports to avoid loading torch/ultralytics until first use.
@@ -105,7 +143,19 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
                 - crop_padding: Pixels added around each crop bbox (default: 10).
                 - min_area_ratio: Drop boxes smaller than this (default: 0.0005).
                 - max_area_ratio: Drop boxes larger than this (default: 0.95).
-                - imgsz: Inference image size (default: model default).
+                - imgsz: Inference image size (default: 640). The SAM3 backbone
+                  cost (and GPU memory) scales ~quadratically with this; lower
+                  it (e.g. 512) for speed at the cost of small-object recall,
+                  or raise it for recall. NOTE: the native 1024 OOMs on a 24 GB
+                  GPU with the full default prompt set. Set to ``None`` to use
+                  the model default (1024).
+                - compile: torch.compile() the model for faster inference
+                  (default: False). True / "default" / "reduce-overhead" /
+                  "max-autotune-no-cudagraphs". Adds a one-time compile cost on
+                  the first run, absorbed by ``load_model``'s warm-up.
+                - warmup: Run a dummy inference in ``load_model`` to pay model
+                  build / compile / CUDA-kernel autotune cost up front instead
+                  of on the first real request (default: True).
         """
         self._config = config
 
@@ -114,6 +164,7 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
             import torch
 
             device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"SAM3 provider using device: {device or 'auto'}")
         self._device = device
         self._half = bool(config.get("half", device == "cuda"))
 
@@ -127,14 +178,38 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         self._crop_padding = int(config.get("crop_padding", 10))
         self._min_area_ratio = float(config.get("min_area_ratio", 0.0005))
         self._max_area_ratio = float(config.get("max_area_ratio", 0.95))
-        self._imgsz = config.get("imgsz")
+        # Default below the model's native 1024 for speed; ``None`` opts back
+        # into the model default.
+        self._imgsz = config.get("imgsz", 640)
+        self._compile = config.get("compile", False)
+        self._warmup = bool(config.get("warmup", True))
 
         self._predictor = None
         self._model_name = os.path.basename(str(config.get("model", "sam3.pt")))
 
     def load_model(self) -> None:
-        """Pre-load SAM3 model weights into memory."""
+        """Pre-load SAM3 model weights into memory (and warm up if enabled)."""
         self._ensure_loaded()
+        if self._warmup:
+            self._run_warmup()
+
+    def _run_warmup(self) -> None:
+        """Pay model-build / torch.compile / CUDA-autotune cost up front.
+
+        Runs one dummy inference so the first real request isn't hit with the
+        one-time compile/kernel-autotune latency (especially when ``compile`` is
+        enabled). Failures here are non-fatal — the real call will retry.
+        """
+        assert self._predictor is not None
+        size = int(self._imgsz) if self._imgsz else 1024
+        dummy = np.zeros((size, size, 3), dtype=np.uint8)
+        try:
+            self._predictor.set_image(dummy)
+            self._predictor(text=self._default_prompts[:1] or ["object"])
+            self._predictor.reset_image()
+            print(f"SAM3 provider warmed up (imgsz={size}, compile={self._compile}).")
+        except Exception as e:  # pragma: no cover - warm-up is best-effort
+            print(f"SAM3 warm-up skipped: {e}")
 
     def _ensure_loaded(self) -> None:
         """Lazy-load the SAM3 semantic predictor on first use."""
@@ -155,6 +230,9 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         )
         if self._imgsz is not None:
             overrides["imgsz"] = int(self._imgsz)
+        if self._compile:
+            # True / "default" / "reduce-overhead" / "max-autotune-no-cudagraphs"
+            overrides["compile"] = self._compile
         self._predictor = SAM3SemanticPredictor(overrides=overrides)
 
     def detect(
@@ -208,7 +286,10 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
 
         xyxy = conf = cls = None
         if boxes is not None and len(boxes) > 0:
-            xyxy = boxes.xyxy.cpu().numpy()
+            # .float() first: with half=True the boxes are float16, whose max
+            # (~65504) overflows when computing pixel areas and rounds integer
+            # coords above 2048. float32 is exact for image-space coordinates.
+            xyxy = boxes.xyxy.float().cpu().numpy()
             conf = boxes.conf.cpu().numpy() if boxes.conf is not None else None
             cls = boxes.cls.cpu().numpy() if boxes.cls is not None else None
 
