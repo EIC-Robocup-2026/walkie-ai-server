@@ -19,6 +19,7 @@
 | **Object Detection** | Detect & classify objects in images | `yolo` (Ultralytics / Objects365), `sam3` (open-vocab concept segmentation + masks) |
 | **Pose Estimation** | Detect human body keypoints (17 COCO) | `yolo_pose` (Ultralytics) |
 | **Image Captioning** | Generate captions / answer visual questions | `florence2`, `paligemma`, `google` (Gemini) |
+| **Face Recognition** | Detect faces & return L2-normalized embeddings for re-ID | `insightface` (RetinaFace + ArcFace `buffalo_l`) |
 | **LLM Serving** | Optional vLLM / Ollama sidecar | Qwen 3.5-9B (quantized) |
 
 
@@ -136,6 +137,28 @@ Or on error:
 | `POST` | `/image-caption/caption` | 💬 Caption a single image |
 | `POST` | `/image-caption/caption-batch` | 📚 Caption multiple images |
 
+### 🧑 Face Recognition (`/face-recognition`)
+
+Stateless face detection + embedding for person re-identification (RoboCup @Home
+Receptionist). Image in → per face: an `xyxy` bbox, an **L2-normalized** embedding
+(constant dim, e.g. 512), and a detection score. No names, no database, no matching
+on the server — the agent owns enrollment and cosine-distance matching.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/face-recognition/providers` | 📋 List face providers |
+| `GET` | `/face-recognition/info` | 🪪 Model name + embedding dim (vector provenance) |
+| `POST` | `/face-recognition/embed` | 🧑 Detect faces & embed each (multipart `image`) |
+
+`/embed` returns `data: [{ "bbox_xyxy": [x1,y1,x2,y2], "embedding": [...], "det_score": 0.99 }, ...]`
+— `[]` (with `success: true`) when no face is present.
+
+> **GPU note:** InsightFace runs on the CPU `onnxruntime` already pulled in
+> transitively. For real-time speed on the GPU box, replace it with
+> `onnxruntime-gpu` (`uv pip install onnxruntime-gpu`, after removing `onnxruntime`)
+> — both expose the same `onnxruntime` module and must not be installed together.
+> The provider auto-selects GPU (`ctx_id=0`) when a CUDA execution provider is available.
+
 ---
 
 ## 🧪 Testing
@@ -173,7 +196,8 @@ walkie-ai-server/
 │       ├── object_detection.py# 🔍 /object-detection/*
 │       ├── pose_estimation.py # 🏃 /pose-estimation/*
 │       ├── image_caption.py   # 🖼️ /image-caption/*
-│       └── image_embed.py     # 🔗 /image-embed/* (disabled)
+│       ├── image_embed.py     # 🔗 /image-embed/* (disabled)
+│       └── face_recognition.py# 🧑 /face-recognition/*
 │
 ├── 📂 services/               # Provider pattern — abstract base + implementations
 │   ├── stt/
@@ -191,9 +215,12 @@ walkie-ai-server/
 │   ├── image_caption/
 │   │   ├── base.py
 │   │   └── providers/         # florence2_large.py, paligemma.py, google_caption.py
-│   └── image_embed/
+│   ├── image_embed/
+│   │   ├── base.py
+│   │   └── providers/         # clip.py
+│   └── face_recognition/
 │       ├── base.py
-│       └── providers/         # clip.py
+│       └── providers/         # insightface_provider.py
 │
 ├── 📂 scripts/
 │   ├── run_app.sh             # 🟢 Start the Flask server
@@ -206,7 +233,8 @@ walkie-ai-server/
 │   ├── test_tts.py
 │   ├── test_object_detection.py
 │   ├── test_pose_estimation.py
-│   └── test_image_caption.py
+│   ├── test_image_caption.py
+│   └── test_face_recognition.py
 │
 └── 📂 voices/                 # 🗣️ Piper TTS voice assets (.onnx)
 ```

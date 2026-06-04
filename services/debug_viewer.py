@@ -26,6 +26,7 @@ import numpy as np
 from PIL import Image
 
 if TYPE_CHECKING:
+    from .face_recognition.base import FaceEmbedding
     from .object_detection.base import DetectedObject
     from .pose_estimation.base import PersonPose
 
@@ -34,6 +35,7 @@ _DEBUG_ENV_VAR = "VISION_DEBUG"
 WINDOW_IMAGE_CAPTION = "vision-debug: image_caption"
 WINDOW_OBJECT_DETECTION = "vision-debug: object_detection"
 WINDOW_POSE_ESTIMATION = "vision-debug: pose_estimation"
+WINDOW_FACE_RECOGNITION = "vision-debug: face_recognition"
 
 
 def is_enabled() -> bool:
@@ -268,3 +270,25 @@ def show_pose_estimation(image: Image.Image, poses: "list[PersonPose]") -> None:
     _draw_text_block(bgr, summary_lines)
     print(f"[VISION_DEBUG pose_estimation] persons={len(poses)}")
     viewer.push(WINDOW_POSE_ESTIMATION, _bgr_to_pil(bgr))
+
+
+def show_face_recognition(image: Image.Image, faces: "list[FaceEmbedding]") -> None:
+    viewer = _get_viewer()
+    if viewer is None:
+        return
+    bgr = _pil_to_bgr(image)
+    for f in faces:
+        x1, y1, x2, y2 = (int(v) for v in f.bbox_xyxy)
+        cv2.rectangle(bgr, (x1, y1), (x2, y2), (255, 200, 0), 2)
+        label = f"{f.det_score:.2f}"
+        cv2.putText(bgr, label, (x1, max(12, y1 - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(bgr, label, (x1, max(12, y1 - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1, cv2.LINE_AA)
+    summary_lines = [f"faces: {len(faces)}"]
+    for i, f in enumerate(faces[:8]):
+        dim = len(f.embedding)
+        summary_lines.append(f"[{i}] det={f.det_score:.2f} dim={dim}")
+    _draw_text_block(bgr, summary_lines)
+    print(f"[VISION_DEBUG face_recognition] faces={len(faces)}")
+    viewer.push(WINDOW_FACE_RECOGNITION, _bgr_to_pil(bgr))

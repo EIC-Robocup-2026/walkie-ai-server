@@ -19,3 +19,6 @@ wheels/
 
 # Env
 .env
+
+# Test fixtures (downloaded face/sample images)
+test_images/
