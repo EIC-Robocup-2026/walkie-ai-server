@@ -26,7 +26,7 @@ from services.object_detection.base import DetectedObject
 
 bp = Blueprint("object_detection", __name__, url_prefix="/object-detection")
 
-_PROVIDER = os.environ.get("OBJECT_DETECTION_PROVIDER", "yolo")
+_PROVIDER = os.environ.get("OBJECT_DETECTION_PROVIDER", "yoloe")
 _provider_config: dict = {}
 if _PROVIDER == "sam3" and os.environ.get("SAM3_MODEL"):
     _provider_config["model"] = os.environ["SAM3_MODEL"]
