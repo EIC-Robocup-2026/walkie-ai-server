@@ -16,7 +16,7 @@
 |---------|-------------|-----------|
 | **Speech-to-Text** | Transcribe audio to text | `whisper` (local), `google` (Cloud Speech) |
 | **Text-to-Speech** | Synthesize natural speech from text | `piper` (local ONNX), `elevenlabs` (cloud) |
-| **Object Detection** | Detect & classify objects in images | `yolo` (Ultralytics / Objects365), `sam3` (open-vocab concept segmentation + masks) |
+| **Object Detection** | Detect & classify objects in images | `yolo` (Ultralytics / Objects365), `sam3` (open-vocab concept segmentation + masks), `yoloe` (open-vocab detect + segmentation, text prompts or prompt-free) |
 | **Pose Estimation** | Detect human body keypoints (17 COCO) | `yolo_pose` (Ultralytics) |
 | **Image Captioning** | Generate captions / answer visual questions | `florence2`, `paligemma`, `google` (Gemini) |
 | **Face Recognition** | Detect faces & return L2-normalized embeddings for re-ID | `insightface` (RetinaFace + ArcFace `buffalo_l`) |
@@ -54,8 +54,10 @@ cp .env.example .env  # edit with your API keys
 | `GOOGLE_CLOUD_PROJECT` | 🟡 Optional | GCP project for Cloud Speech |
 | `GOOGLE_APPLICATION_CREDENTIALS` | 🟡 Optional | Path to GCP service account JSON |
 | `HF_TOKEN` | 🟡 Optional | Hugging Face token for gated models |
-| `OBJECT_DETECTION_PROVIDER` | 🟡 Optional | Object-detection backend: `yolo` (default) or `sam3` |
+| `OBJECT_DETECTION_PROVIDER` | 🟡 Optional | Object-detection backend: `yolo` (default), `sam3`, or `yoloe` |
 | `SAM3_MODEL` | 🟡 Optional | Path to `sam3.pt` weights (required when provider is `sam3`) |
+| `YOLOE_MODEL` | 🟡 Optional | YOLOE text-prompt checkpoint (default `yoloe-11m-seg.pt`, auto-downloads) |
+| `YOLOE_PF_MODEL` | 🟡 Optional | YOLOE prompt-free checkpoint (default `yoloe-11m-seg-pf.pt`, auto-downloads) |
 
 > 💡 Only needed if you use the corresponding cloud providers. Local-only setups require no API keys!
 
@@ -118,9 +120,13 @@ Or on error:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/object-detection/providers` | 📋 List detection providers |
-| `POST` | `/object-detection/detect` | 📦 Detect objects in image (multipart `image`; optional `prompts` for SAM3) |
+| `POST` | `/object-detection/detect` | 📦 Detect objects in image (multipart `image`; optional `prompts`, optional `return_mask`) |
 
-> 🧩 **SAM3 (open-vocabulary):** when running with `OBJECT_DETECTION_PROVIDER=sam3`, pass text concepts via a `prompts` form field (comma-separated or repeated) to find arbitrary objects, e.g. `-F prompts="red mug,cereal box"`. Responses include a base64 segmentation `mask_b64` per detection. YOLO ignores `prompts`.
+> 🧩 **SAM3 (open-vocabulary):** when running with `OBJECT_DETECTION_PROVIDER=sam3`, pass text concepts via a `prompts` form field (comma-separated or repeated) to find arbitrary objects, e.g. `-F prompts="red mug,cereal box"`. YOLO ignores `prompts`.
+>
+> 🧠 **YOLOE (open-vocabulary):** with `OBJECT_DETECTION_PROVIDER=yoloe`, `prompts` steer a text-prompt model; when no prompts are given it falls back to a prompt-free open-vocabulary model. Both checkpoints auto-download.
+>
+> 🎭 **Masks:** add `-F return_mask=true` to include a base64 PNG segmentation `mask_b64` per detection (default `false` → bbox only). SAM3 and YOLOE produce masks; YOLO only does so with a `-seg` checkpoint (otherwise it warns and returns a null mask). `bbox` is always returned.
 
 ### 🏃 Pose Estimation (`/pose-estimation`)
 
@@ -208,7 +214,7 @@ walkie-ai-server/
 │   │   └── providers/         # piper_tts.py, elevenlabs.py
 │   ├── object_detection/
 │   │   ├── base.py
-│   │   └── providers/         # yolo.py, sam3.py
+│   │   └── providers/         # yolo.py, sam3.py, yoloe.py
 │   ├── pose_estimation/
 │   │   ├── base.py
 │   │   └── providers/         # yolo_pose.py
