@@ -48,15 +48,18 @@ class ObjectDetection:
         self,
         image: Image.Image,
         prompts: list[str] | None = None,
+        return_mask: bool = False,
     ) -> list[DetectedObject]:
         """Detect objects in an image.
 
         Args:
             image: PIL Image (RGB) to process.
             prompts: Optional text prompts for concept-segmentation providers
-                (e.g. SAM3). Ignored by fixed-class providers (e.g. YOLO).
+                (e.g. SAM3, YOLOE). Ignored by fixed-class providers (e.g. YOLO).
+            return_mask: When True, populate ``DetectedObject.mask`` with a
+                segmentation mask where the provider/model supports it.
         """
-        return self._provider.detect(image, prompts)
+        return self._provider.detect(image, prompts, return_mask)
 
     def get_model_name(self) -> str:
         """Model name for logging."""

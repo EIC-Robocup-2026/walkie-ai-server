@@ -20,7 +20,13 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from ..base import DetectedObject, ObjectDetectionProvider
+from ..base import (
+    DetectedObject,
+    ObjectDetectionProvider,
+    bbox_for,
+    label_for,
+    resize_mask,
+)
 
 # Default open-vocabulary concepts used when no per-request prompts are given.
 # This is the RoboCup@Home known-object set (GermanOpen 2026 / 2026-season
@@ -239,6 +245,7 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         self,
         image: Image.Image,
         prompts: list[str] | None = None,
+        return_mask: bool = False,
     ) -> list[DetectedObject]:
         """Run SAM3 concept segmentation and return DetectedObject list.
 
@@ -247,6 +254,8 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
             prompts: Open-vocabulary noun phrases to find (e.g.
                 ["red mug", "cereal box"]). Falls back to the configured default
                 prompts when omitted.
+            return_mask: When True, include the segmentation mask on each
+                detection; otherwise only bounding boxes are returned.
         """
         self._ensure_loaded()
         assert self._predictor is not None
@@ -264,7 +273,7 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         self._predictor.set_image(img_rgb)
         results = self._predictor(text=concepts)
 
-        return self._parse_results(results, concepts, w, h, total_area)
+        return self._parse_results(results, concepts, w, h, total_area, return_mask)
 
     def _parse_results(
         self,
@@ -273,6 +282,7 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         w: int,
         h: int,
         total_area: float,
+        return_mask: bool = False,
     ) -> list[DetectedObject]:
         """Convert Ultralytics SAM3 results into DetectedObject list."""
         if not results:
@@ -293,8 +303,15 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
             conf = boxes.conf.cpu().numpy() if boxes.conf is not None else None
             cls = boxes.cls.cpu().numpy() if boxes.cls is not None else None
 
+        # Decode masks when the caller asked for them, or when boxes are absent
+        # and we need the mask extent to derive a bounding box.
+        need_mask_for_bbox = xyxy is None
         mask_data = None
-        if masks is not None and getattr(masks, "data", None) is not None:
+        if (
+            (return_mask or need_mask_for_bbox)
+            and masks is not None
+            and getattr(masks, "data", None) is not None
+        ):
             mask_data = masks.data.cpu().numpy()  # (N, mh, mw), float/bool
 
         # Number of detections from whichever source is present.
@@ -323,9 +340,9 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
 
             mask_2d = None
             if mask_data is not None and idx < mask_data.shape[0]:
-                mask_2d = self._resize_mask(mask_data[idx], w, h)
+                mask_2d = resize_mask(mask_data[idx], w, h)
 
-            bbox = self._bbox_for(xyxy, idx, mask_2d, w, h)
+            bbox = bbox_for(xyxy, idx, mask_2d, w, h)
             if bbox is None:
                 continue
             x1, y1, x2, y2 = bbox
@@ -341,12 +358,14 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
                 continue
 
             confidence = float(conf[idx]) if conf is not None else None
-            class_name = self._label_for(cls, idx, names, concepts)
+            class_name = label_for(cls, idx, names, concepts)
             class_id = int(cls[idx]) if cls is not None else None
 
             detections.append(
                 DetectedObject(
-                    mask=mask_2d,
+                    # mask_2d may have been decoded only to derive a bbox; only
+                    # expose it to the caller when masks were requested.
+                    mask=mask_2d if return_mask else None,
                     bbox=[x1p, y1p, x2p, y2p],
                     area_ratio=area_ratio,
                     class_id=class_id,
@@ -355,55 +374,6 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
                 )
             )
         return detections
-
-    @staticmethod
-    def _resize_mask(mask: np.ndarray, w: int, h: int) -> np.ndarray:
-        """Binarize and resize a mask to the original image size (uint8 H×W)."""
-        binary = (np.asarray(mask) > 0.5).astype(np.uint8)
-        if binary.shape == (h, w):
-            return binary
-        resized = Image.fromarray(binary * 255).resize((w, h), Image.NEAREST)
-        return (np.array(resized) > 127).astype(np.uint8)
-
-    @staticmethod
-    def _bbox_for(
-        xyxy: np.ndarray | None,
-        idx: int,
-        mask_2d: np.ndarray | None,
-        w: int,
-        h: int,
-    ) -> tuple[int, int, int, int] | None:
-        """Get an integer (x1, y1, x2, y2) bbox from boxes or mask extent."""
-        if xyxy is not None and idx < len(xyxy):
-            x1, y1, x2, y2 = xyxy[idx]
-            return int(x1), int(y1), int(x2), int(y2)
-        if mask_2d is not None:
-            ys, xs = np.nonzero(mask_2d)
-            if xs.size == 0 or ys.size == 0:
-                return None
-            return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
-        return None
-
-    @staticmethod
-    def _label_for(
-        cls: np.ndarray | None,
-        idx: int,
-        names: Any,
-        concepts: list[str],
-    ) -> str:
-        """Map a detection to its concept label."""
-        if cls is not None and idx < len(cls):
-            cid = int(cls[idx])
-            if isinstance(names, dict) and cid in names:
-                return str(names[cid])
-            if isinstance(names, (list, tuple)) and 0 <= cid < len(names):
-                return str(names[cid])
-            if 0 <= cid < len(concepts):
-                return concepts[cid]
-        # Single-concept queries: label with that concept.
-        if len(concepts) == 1:
-            return concepts[0]
-        return "object"
 
     def get_model_name(self) -> str:
         return self._model_name

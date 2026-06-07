@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from ..base import DetectedObject, ObjectDetectionProvider
+from ..base import DetectedObject, ObjectDetectionProvider, resize_mask
 
 # Lazy imports to avoid loading torch/ultralytics until first use
 _ultralytics_imported = False
@@ -84,6 +84,9 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
         self._max_area_ratio = float(config.get("max_area_ratio", 0.95))
         self._model = None
         self._model_name = "yolo26m.pt"
+        # Set once we warn that the configured model can't produce masks, so the
+        # warning is printed a single time rather than on every request.
+        self._warned_no_masks = False
 
     def load_model(self) -> None:
         """Pre-load YOLO model weights into memory."""
@@ -103,11 +106,17 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
         self,
         image: Image.Image,
         prompts: list[str] | None = None,
+        return_mask: bool = False,
     ) -> list[DetectedObject]:
         """Run YOLO inference and return detections as DetectedObject list.
 
         ``prompts`` is accepted for interface compatibility with concept
         providers (e.g. SAM3) but ignored — YOLO uses its fixed class set.
+
+        ``return_mask`` is honored only when the configured model is a
+        segmentation model (``task == "segment"``, e.g. a ``-seg`` checkpoint).
+        For detection-only models a warning is printed once and detections are
+        returned with a blank (``None``) mask.
         """
         self._ensure_loaded()
         assert self._model is not None
@@ -117,14 +126,21 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
         h, w = img_rgb.shape[0], img_rgb.shape[1]
         total_area = h * w
 
+        seg_capable = getattr(self._model, "task", None) == "segment"
+        if return_mask and not seg_capable:
+            self._warn_no_masks_once()
+        want_masks = return_mask and seg_capable
+
         # Ultralytics expects BGR or RGB; PIL is RGB. YOLO accepts numpy HWC.
-        results = self._model.predict(
-            img_rgb,
+        predict_kwargs: dict = dict(
             conf=self._conf_threshold,
             iou=self._iou_threshold,
             verbose=False,
             device=self._device,
         )
+        if want_masks:
+            predict_kwargs["retina_masks"] = True
+        results = self._model.predict(img_rgb, **predict_kwargs)
 
         detections: list[DetectedObject] = []
         if not results:
@@ -134,13 +150,23 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
         if r.boxes is None or len(r.boxes) == 0:
             return detections
 
-        # boxes.xyxy is (N, 4) in pixel coords (x1, y1, x2, y2)
-        xyxy = r.boxes.xyxy.cpu().numpy()
+        # boxes.xyxy is (N, 4) in pixel coords (x1, y1, x2, y2). .float() guards
+        # against float16 overflow on half-precision seg models.
+        xyxy = r.boxes.xyxy.float().cpu().numpy()
         cls_ids = r.boxes.cls.cpu().numpy()
         confs = r.boxes.conf.cpu().numpy()
         names = getattr(self._model, "names", {}) or {}
         if isinstance(names, list):
             names = {i: names[i] for i in range(len(names))}
+
+        mask_data = None
+        if want_masks:
+            masks = getattr(r, "masks", None)
+            if masks is not None and getattr(masks, "data", None) is not None:
+                mask_data = masks.data.float().cpu().numpy()  # (N, mh, mw)
+            else:
+                # Model claims segmentation but produced no masks for this image.
+                self._warn_no_masks_once()
 
         # Sort by area descending to prioritize larger objects
         areas = (xyxy[:, 2] - xyxy[:, 0]) * (xyxy[:, 3] - xyxy[:, 1])
@@ -165,9 +191,12 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
             class_id = int(cls_ids[idx])
             class_name = names.get(class_id, "unknown")
             confidence = float(confs[idx])
+            mask_2d = None
+            if mask_data is not None and idx < mask_data.shape[0]:
+                mask_2d = resize_mask(mask_data[idx], w, h)
             detections.append(
                 DetectedObject(
-                    mask=None,
+                    mask=mask_2d,
                     bbox=[x1p, y1p, x2p, y2p],
                     area_ratio=area_ratio,
                     class_id=class_id,
@@ -176,6 +205,18 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
                 )
             )
         return detections
+
+    def _warn_no_masks_once(self) -> None:
+        """Print a single warning when masks are requested but unavailable."""
+        if self._warned_no_masks:
+            return
+        task = getattr(self._model, "task", "?")
+        print(
+            "YOLO provider: configured model does not support segmentation "
+            f"(task={task}); return_mask=True ignored, returning bounding boxes "
+            "only. Use a '-seg' checkpoint for masks."
+        )
+        self._warned_no_masks = True
 
     def get_model_name(self) -> str:
         return self._model_name
