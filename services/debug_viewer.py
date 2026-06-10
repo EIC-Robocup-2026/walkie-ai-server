@@ -36,6 +36,7 @@ WINDOW_IMAGE_CAPTION = "vision-debug: image_caption"
 WINDOW_OBJECT_DETECTION = "vision-debug: object_detection"
 WINDOW_POSE_ESTIMATION = "vision-debug: pose_estimation"
 WINDOW_FACE_RECOGNITION = "vision-debug: face_recognition"
+WINDOW_APPEARANCE = "vision-debug: appearance"
 
 
 def is_enabled() -> bool:
@@ -292,3 +293,16 @@ def show_face_recognition(image: Image.Image, faces: "list[FaceEmbedding]") -> N
     _draw_text_block(bgr, summary_lines)
     print(f"[VISION_DEBUG face_recognition] faces={len(faces)}")
     viewer.push(WINDOW_FACE_RECOGNITION, _bgr_to_pil(bgr))
+
+
+def show_appearance(image: Image.Image, embedding: "list[float]") -> None:
+    """Show the person crop the agent sent — there is no bbox to draw; the
+    useful signal is what the crop actually contains."""
+    viewer = _get_viewer()
+    if viewer is None:
+        return
+    bgr = _pil_to_bgr(image)
+    norm = float(np.sqrt(np.dot(embedding, embedding))) if embedding else 0.0
+    _draw_text_block(bgr, [f"dim={len(embedding)} norm={norm:.3f}"])
+    print(f"[VISION_DEBUG appearance] dim={len(embedding)}")
+    viewer.push(WINDOW_APPEARANCE, _bgr_to_pil(bgr))

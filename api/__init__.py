@@ -3,6 +3,7 @@
 from flask import Flask
 
 from api.routes import (
+    appearance,
     face_recognition,
     image_caption,
     image_embed,
@@ -23,6 +24,7 @@ def create_app() -> Flask:
     app.register_blueprint(image_caption.bp)
     app.register_blueprint(image_embed.bp)
     app.register_blueprint(face_recognition.bp)
+    app.register_blueprint(appearance.bp)
 
     @app.get("/")
     def index():
@@ -36,6 +38,7 @@ def create_app() -> Flask:
                 "image_caption": "paligemma",
                 "image_embed": "clip",
                 "face_recognition": "insightface",
+                "appearance": "osnet",
             },
             "endpoints": [
                 "/stt/transcribe",
@@ -45,6 +48,7 @@ def create_app() -> Flask:
                 "/image-caption/caption", "/image-caption/caption-batch",
                 "/image-embed/embed-image", "/image-embed/embed-text", "/image-embed/similarity",
                 "/face-recognition/embed", "/face-recognition/info",
+                "/appearance/embed", "/appearance/info",
             ],
         }
 
