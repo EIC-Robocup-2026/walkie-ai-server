@@ -20,6 +20,7 @@
 | **Pose Estimation** | Detect human body keypoints (17 COCO) | `yolo_pose` (Ultralytics) |
 | **Image Captioning** | Generate captions / answer visual questions | `florence2`, `paligemma`, `google` (Gemini) |
 | **Face Recognition** | Detect faces & return L2-normalized embeddings for re-ID | `insightface` (RetinaFace + ArcFace `buffalo_l`) |
+| **Appearance re-ID** | Embed a person crop (clothing/body) for re-ID when the face is not visible | `osnet` (OSNet x1.0 via torchreid) |
 | **LLM Serving** | Optional vLLM / Ollama sidecar | Qwen 3.5-9B (quantized) |
 
 
@@ -164,6 +165,36 @@ on the server — the agent owns enrollment and cosine-distance matching.
 > `onnxruntime-gpu` (`uv pip install onnxruntime-gpu`, after removing `onnxruntime`)
 > — both expose the same `onnxruntime` module and must not be installed together.
 > The provider auto-selects GPU (`ctx_id=0`) when a CUDA execution provider is available.
+
+### 👕 Appearance re-ID (`/appearance`)
+
+Stateless appearance (attire/body) embedding — the second modality of person
+re-identification, for when the face is **not** visible (guest turned away, far,
+occluded). One person **crop** in → one **L2-normalized** 512-d OSNet vector out.
+The agent crops to the person bbox before sending and owns enrollment, face↔appearance
+fusion, thresholds, and the people database. Pipeline by **Chalk (EIC team)** — see
+`docs/appearance_service_handoff.md`.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/appearance/providers` | 📋 List appearance providers |
+| `GET` | `/appearance/info` | 🪪 Model name + embedding dim (vector provenance) |
+| `POST` | `/appearance/embed` | 👕 Embed one person crop (multipart `image`) |
+
+`/embed` returns `data: { "embedding": [...] }` — the model embeds whatever image it
+is given (no person detection server-side).
+
+> **Install note:** `torchreid` (deep-person-reid) is not in `pyproject.toml` because
+> its PEP 517 metadata build is broken under build isolation — install it into the
+> venv manually (torch is already present):
+>
+> ```bash
+> uv pip install cython
+> uv pip install --no-build-isolation "git+https://github.com/KaiyangZhou/deep-person-reid.git"
+> ```
+>
+> The route lazy-loads on first request (pretrained `osnet_x1_0` weights
+> auto-download), so a missing torchreid never blocks server startup.
 
 ---
 

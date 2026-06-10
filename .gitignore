@@ -22,3 +22,6 @@ wheels/
 
 # Test fixtures (downloaded face/sample images)
 test_images/
+
+# Docs (RoboCup rulebook)
+docs/robocup_2026_rulebook.pdf
