@@ -136,15 +136,36 @@ class YOLOEObjectDetectionProvider(ObjectDetectionProvider):
 
         Setting classes encodes the prompt text once; an app-level cache avoids
         re-encoding when the same prompt set is reused across requests.
+
+        The text encoder always emits float32 embeddings, but a prior
+        ``predict(half=True)`` converts the model head -- including the reprta
+        block that refines those embeddings -- to fp16 in place. Re-encoding
+        then multiplies float32 features by fp16 weights, raising "mat1 and mat2
+        must have the same dtype, but got Float and Half". Float the model for
+        the encode and restore half afterwards; predict re-casts the stored
+        embeddings to the input dtype, so detection precision is unchanged.
         """
         if self._current_classes == classes:
             return
         assert self._model is not None
+
+        import torch
+
+        torch_model = getattr(self._model, "model", None)
+        was_half = torch_model is not None and any(
+            p.dtype == torch.float16 for p in torch_model.parameters()
+        )
+        if was_half:
+            torch_model.float()
         try:
-            self._model.set_classes(classes)
-        except Exception:
-            # Robustness across ultralytics versions: pass text embeddings too.
-            self._model.set_classes(classes, self._model.get_text_pe(classes))
+            try:
+                self._model.set_classes(classes)
+            except Exception:
+                # Robustness across ultralytics versions: pass text embeddings too.
+                self._model.set_classes(classes, self._model.get_text_pe(classes))
+        finally:
+            if was_half:
+                torch_model.half()
         self._current_classes = list(classes)
 
     def detect(
