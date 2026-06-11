@@ -83,6 +83,7 @@ def benchmark_size(
         "imgsz": imgsz,
         "compile": compile_mode,
         "warmup": False,  # we do explicit, timed warm-up below
+        "preload": False,  # text-path only; skip the segment-everything model
         "prompts": prompts,
     }
     if device:

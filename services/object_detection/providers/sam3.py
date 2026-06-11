@@ -7,9 +7,15 @@ returns segmentation masks and is not limited to a fixed label set, which makes
 it a drop-in replacement for the YOLO provider when grounding/segmentation is
 needed.
 
-Used via the Ultralytics ``SAM3SemanticPredictor`` (text prompts). The
-``sam3.pt`` weights must be downloaded manually from Hugging Face — they do not
-auto-download. Set the ``model`` config to the local checkpoint path.
+Like the YOLOE provider, two modes are used depending on the request:
+  - text prompts supplied (or configured via the ``prompts`` config key): the
+    ``SAM3SemanticPredictor`` segments every instance of each concept.
+  - NO prompts supplied: SAM's prompt-free "segment everything" mode (via the
+    interactive ``SAM3Predictor``) returns unlabeled instance masks for every
+    object in the image (``class_name`` is always ``"object"``).
+
+The ``sam3.pt`` weights must be downloaded manually from Hugging Face — they do
+not auto-download. Set the ``model`` config to the local checkpoint path.
 """
 
 from __future__ import annotations
@@ -28,10 +34,12 @@ from ..base import (
     resize_mask,
 )
 
-# Default open-vocabulary concepts used when no per-request prompts are given.
-# This is the RoboCup@Home known-object set (GermanOpen 2026 / 2026-season
-# rulebook), grouped by the official Object Categories. Override via the
-# ``prompts`` config key or per-request prompts.
+# Reference open-vocabulary concept set: the RoboCup@Home known-object set
+# (GermanOpen 2026 / 2026-season rulebook), grouped by the official Object
+# Categories. NOT applied automatically — requests without prompts use the
+# prompt-free "segment everything" mode instead (like the YOLOE provider).
+# Pass via the ``prompts`` config key to detect these concepts by default;
+# also used as the default workload in scripts/benchmark_sam3.py.
 # Source: https://github.com/RoboCupAtHome/GermanOpen2026 (objects/known_objects)
 _DEFAULT_PROMPTS: tuple[str, ...] = (
     # cleaning supplies
@@ -143,7 +151,9 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
                 - device: "cuda" or "cpu" (default: auto).
                 - half: Use FP16 inference (default: True on CUDA).
                 - prompts: Default text concepts (list[str]) to detect when no
-                  per-request prompts are supplied.
+                  per-request prompts are supplied. If unset, requests with no
+                  prompts use prompt-free "segment everything" mode instead
+                  (unlabeled instance masks).
                 - conf_threshold: Minimum confidence (0-1) to keep (default: 0.25).
                 - max_objects: Maximum detections to return (default: 50).
                 - crop_padding: Pixels added around each crop bbox (default: 10).
@@ -159,9 +169,14 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
                   (default: False). True / "default" / "reduce-overhead" /
                   "max-autotune-no-cudagraphs". Adds a one-time compile cost on
                   the first run, absorbed by ``load_model``'s warm-up.
-                - warmup: Run a dummy inference in ``load_model`` to pay model
-                  build / compile / CUDA-kernel autotune cost up front instead
-                  of on the first real request (default: True).
+                - warmup: Run a dummy inference per loaded predictor in
+                  ``load_model`` to pay model build / compile / CUDA-kernel
+                  autotune cost up front instead of on the first real request
+                  (default: True).
+                - preload: Eagerly load both predictors (text-prompt and
+                  segment-everything) in ``load_model`` (default: True). Each
+                  holds its own copy of the backbone; set False on tight GPU
+                  memory to lazy-load each on first use instead.
         """
         self._config = config
 
@@ -175,9 +190,7 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         self._half = bool(config.get("half", device == "cuda"))
 
         prompts = config.get("prompts")
-        self._default_prompts: list[str] = (
-            list(prompts) if prompts else list(_DEFAULT_PROMPTS)
-        )
+        self._default_prompts: list[str] = list(prompts) if prompts else []
 
         self._conf_threshold = float(config.get("conf_threshold", 0.25))
         self._max_objects = int(config.get("max_objects", 50))
@@ -189,41 +202,52 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         self._imgsz = config.get("imgsz", 640)
         self._compile = config.get("compile", False)
         self._warmup = bool(config.get("warmup", True))
+        self._preload = bool(config.get("preload", True))
 
-        self._predictor = None
+        self._predictor = None  # text-prompt (semantic) predictor
+        self._everything_predictor = None  # prompt-free segment-everything
         self._model_name = os.path.basename(str(config.get("model", "sam3.pt")))
 
     def load_model(self) -> None:
         """Pre-load SAM3 model weights into memory (and warm up if enabled)."""
-        self._ensure_loaded()
+        if not self._preload:
+            return
+        self._ensure_text_loaded()
+        self._ensure_everything_loaded()
         if self._warmup:
             self._run_warmup()
 
     def _run_warmup(self) -> None:
         """Pay model-build / torch.compile / CUDA-autotune cost up front.
 
-        Runs one dummy inference so the first real request isn't hit with the
-        one-time compile/kernel-autotune latency (especially when ``compile`` is
-        enabled). Failures here are non-fatal — the real call will retry.
+        Runs one dummy inference per loaded predictor so the first real request
+        isn't hit with the one-time compile/kernel-autotune latency (especially
+        when ``compile`` is enabled). Failures here are non-fatal — the real
+        call will retry.
         """
-        assert self._predictor is not None
         size = int(self._imgsz) if self._imgsz else 1024
         dummy = np.zeros((size, size, 3), dtype=np.uint8)
-        try:
-            self._predictor.set_image(dummy)
-            self._predictor(text=self._default_prompts[:1] or ["object"])
-            self._predictor.reset_image()
-            print(f"SAM3 provider warmed up (imgsz={size}, compile={self._compile}).")
-        except Exception as e:  # pragma: no cover - warm-up is best-effort
-            print(f"SAM3 warm-up skipped: {e}")
-
-    def _ensure_loaded(self) -> None:
-        """Lazy-load the SAM3 semantic predictor on first use."""
         if self._predictor is not None:
-            return
-        _ensure_ultralytics()
-        from ultralytics.models.sam import SAM3SemanticPredictor
+            try:
+                self._predictor.set_image(dummy)
+                self._predictor(text=self._default_prompts[:1] or ["object"])
+                self._predictor.reset_image()
+                print(
+                    f"SAM3 text model warmed up (imgsz={size}, compile={self._compile})."
+                )
+            except Exception as e:  # pragma: no cover - warm-up is best-effort
+                print(f"SAM3 text-model warm-up skipped: {e}")
+        if self._everything_predictor is not None:
+            try:
+                self._everything_predictor.set_image(dummy)
+                self._everything_predictor()
+                self._everything_predictor.reset_image()
+                print("SAM3 everything model warmed up.")
+            except Exception as e:  # pragma: no cover - warm-up is best-effort
+                print(f"SAM3 everything-model warm-up skipped: {e}")
 
+    def _base_overrides(self) -> dict[str, Any]:
+        """Ultralytics predictor overrides shared by both predictors."""
         overrides: dict[str, Any] = dict(
             conf=self._conf_threshold,
             task="segment",
@@ -239,7 +263,25 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         if self._compile:
             # True / "default" / "reduce-overhead" / "max-autotune-no-cudagraphs"
             overrides["compile"] = self._compile
-        self._predictor = SAM3SemanticPredictor(overrides=overrides)
+        return overrides
+
+    def _ensure_text_loaded(self) -> None:
+        """Lazy-load the text-prompt (semantic) predictor on first use."""
+        if self._predictor is not None:
+            return
+        _ensure_ultralytics()
+        from ultralytics.models.sam import SAM3SemanticPredictor
+
+        self._predictor = SAM3SemanticPredictor(overrides=self._base_overrides())
+
+    def _ensure_everything_loaded(self) -> None:
+        """Lazy-load the segment-everything (interactive) predictor on first use."""
+        if self._everything_predictor is not None:
+            return
+        _ensure_ultralytics()
+        from ultralytics.models.sam import SAM3Predictor
+
+        self._everything_predictor = SAM3Predictor(overrides=self._base_overrides())
 
     def detect(
         self,
@@ -247,22 +289,21 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         prompts: list[str] | None = None,
         return_mask: bool = False,
     ) -> list[DetectedObject]:
-        """Run SAM3 concept segmentation and return DetectedObject list.
+        """Run SAM3 segmentation and return DetectedObject list.
+
+        When ``prompts`` (or the configured default prompts) are present the
+        semantic predictor segments those concepts. Otherwise the interactive
+        predictor runs prompt-free "segment everything" mode, returning
+        unlabeled instances (``class_name`` is ``"object"``).
 
         Args:
             image: PIL Image (RGB).
             prompts: Open-vocabulary noun phrases to find (e.g.
-                ["red mug", "cereal box"]). Falls back to the configured default
-                prompts when omitted.
+                ["red mug", "cereal box"]).
             return_mask: When True, include the segmentation mask on each
                 detection; otherwise only bounding boxes are returned.
         """
-        self._ensure_loaded()
-        assert self._predictor is not None
-
         concepts = [p for p in (prompts or self._default_prompts) if p and p.strip()]
-        if not concepts:
-            return []
 
         img_rgb = np.array(image)
         if img_rgb.ndim == 2:
@@ -270,10 +311,20 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         h, w = img_rgb.shape[0], img_rgb.shape[1]
         total_area = float(h * w)
 
-        self._predictor.set_image(img_rgb)
-        results = self._predictor(text=concepts)
+        if concepts:
+            self._ensure_text_loaded()
+            assert self._predictor is not None
+            self._predictor.set_image(img_rgb)
+            results = self._predictor(text=concepts)
+        else:
+            self._ensure_everything_loaded()
+            assert self._everything_predictor is not None
+            self._everything_predictor.set_image(img_rgb)
+            results = self._everything_predictor()
 
-        return self._parse_results(results, concepts, w, h, total_area, return_mask)
+        return self._parse_results(
+            results, concepts, w, h, total_area, return_mask, labeled=bool(concepts)
+        )
 
     def _parse_results(
         self,
@@ -283,8 +334,14 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         h: int,
         total_area: float,
         return_mask: bool = False,
+        labeled: bool = True,
     ) -> list[DetectedObject]:
-        """Convert Ultralytics SAM3 results into DetectedObject list."""
+        """Convert Ultralytics SAM3 results into DetectedObject list.
+
+        With ``labeled=False`` (segment-everything mode) the result's cls/names
+        are mask-index placeholders, so they are ignored and every detection is
+        labeled ``"object"`` with no class id.
+        """
         if not results:
             return []
         r = results[0] if isinstance(results, (list, tuple)) else results
@@ -301,7 +358,8 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
             # coords above 2048. float32 is exact for image-space coordinates.
             xyxy = boxes.xyxy.float().cpu().numpy()
             conf = boxes.conf.cpu().numpy() if boxes.conf is not None else None
-            cls = boxes.cls.cpu().numpy() if boxes.cls is not None else None
+            if labeled:
+                cls = boxes.cls.cpu().numpy() if boxes.cls is not None else None
 
         # Decode masks when the caller asked for them, or when boxes are absent
         # and we need the mask extent to derive a bounding box.
@@ -323,7 +381,7 @@ class SAM3ObjectDetectionProvider(ObjectDetectionProvider):
         if n == 0:
             return []
 
-        names = getattr(r, "names", None)
+        names = getattr(r, "names", None) if labeled else None
 
         # Order by area descending (prefer larger objects), like YOLO provider.
         if xyxy is not None:

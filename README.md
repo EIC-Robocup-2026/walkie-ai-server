@@ -123,7 +123,7 @@ Or on error:
 | `GET` | `/object-detection/providers` | 📋 List detection providers |
 | `POST` | `/object-detection/detect` | 📦 Detect objects in image (multipart `image`; optional `prompts`, optional `return_mask`) |
 
-> 🧩 **SAM3 (open-vocabulary):** when running with `OBJECT_DETECTION_PROVIDER=sam3`, pass text concepts via a `prompts` form field (comma-separated or repeated) to find arbitrary objects, e.g. `-F prompts="red mug,cereal box"`. YOLO ignores `prompts`.
+> 🧩 **SAM3 (open-vocabulary):** when running with `OBJECT_DETECTION_PROVIDER=sam3`, pass text concepts via a `prompts` form field (comma-separated or repeated) to find arbitrary objects, e.g. `-F prompts="red mug,cereal box"`. With no prompts it segments everything (unlabeled instances, `class_name` = `object`). YOLO ignores `prompts`.
 >
 > 🧠 **YOLOE (open-vocabulary):** with `OBJECT_DETECTION_PROVIDER=yoloe`, `prompts` steer a text-prompt model; when no prompts are given it falls back to a prompt-free open-vocabulary model. Both checkpoints auto-download.
 >

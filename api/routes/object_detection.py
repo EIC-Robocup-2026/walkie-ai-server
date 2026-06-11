@@ -2,7 +2,8 @@
 
 Provider is selectable via the ``OBJECT_DETECTION_PROVIDER`` env var:
   - "yolo" (default): fixed 365-class Objects365 detector, no masks.
-  - "sam3": open-vocabulary concept segmentation (text prompts + masks).
+  - "sam3": open-vocabulary concept segmentation (text prompts + masks; with
+    no prompts it segments everything as unlabeled instances).
   - "yoloe": open-vocabulary detection + segmentation (text prompts or a
     prompt-free model when no prompts are given).
 
@@ -28,6 +29,8 @@ bp = Blueprint("object_detection", __name__, url_prefix="/object-detection")
 
 _PROVIDER = os.environ.get("OBJECT_DETECTION_PROVIDER", "yoloe")
 _provider_config: dict = {}
+if _PROVIDER == "yolo":
+    _provider_config["model"] = os.environ.get("YOLO_MODEL", "YOLO26l-seg")  # Optional custom model path  
 if _PROVIDER == "sam3" and os.environ.get("SAM3_MODEL"):
     _provider_config["model"] = os.environ["SAM3_MODEL"]
 if _PROVIDER == "yoloe":

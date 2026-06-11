@@ -47,7 +47,15 @@ def _get_model_path(config: dict[str, Any]) -> str:
                 "Install huggingface_hub and ensure HF_TOKEN is set if needed. "
                 f"Error: {e}"
             ) from e
-    # Assume it's a path or model name for YOLO() (e.g. "yolo11n.pt")
+    # Otherwise treat it as an official ultralytics checkpoint name that YOLO()
+    # auto-downloads (e.g. "yolo26l-seg", "yolo11m.pt"). Ultralytics release
+    # assets are lowercase and need a ".pt" suffix, so normalize bare names
+    # like "YOLO26l-seg" -> "yolo26l-seg.pt" while leaving real paths untouched.
+    if os.sep not in model and (os.altsep is None or os.altsep not in model):
+        name = model.lower()
+        if not os.path.splitext(name)[1]:
+            name += ".pt"
+        return name
     return model
 
 
@@ -59,7 +67,9 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
 
         Args:
             config: Optional keys:
-                - model: "yolo11n_object365" (default, downloads from HF), or path to .pt file
+                - model: "yolo11n_object365" (default, downloads from HF), a path
+                  to a .pt file, or an official ultralytics checkpoint name that
+                  YOLO() auto-downloads (e.g. "yolo26l-seg" for segmentation masks)
                 - device: "cuda" or "cpu" (default: auto)
                 - conf_threshold: Minimum confidence (0-1) to keep a detection (default: 0.25)
                 - iou_threshold: NMS IOU threshold (default: 0.45)
@@ -83,7 +93,9 @@ class YOLOObjectDetectionProvider(ObjectDetectionProvider):
         self._min_area_ratio = float(config.get("min_area_ratio", 0.0005))
         self._max_area_ratio = float(config.get("max_area_ratio", 0.95))
         self._model = None
-        self._model_name = "yolo26m.pt"
+        self._model_name = os.path.basename(
+            str(config.get("model", "yolo11n_object365"))
+        )
         # Set once we warn that the configured model can't produce masks, so the
         # warning is printed a single time rather than on every request.
         self._warned_no_masks = False
