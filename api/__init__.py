@@ -12,6 +12,7 @@ from api.routes import (
     stt,
     tts,
 )
+from api.routes.config import section
 
 
 def create_app() -> Flask:
@@ -31,14 +32,14 @@ def create_app() -> Flask:
         return {
             "service": "walkie-agent-v2",
             "models": {
-                "stt": "whisper",
-                "tts": "elevenlabs",
-                "object_detection": "yolo",
-                "pose_estimation": "yolo_pose",
-                "image_caption": "paligemma",
-                "image_embed": "clip",
-                "face_recognition": "insightface",
-                "appearance": "osnet",
+                "stt": section("stt").get("provider", "whisper"),
+                "tts": section("tts").get("provider", "piper"),
+                "object_detection": section("object_detection").get("provider", "yoloe"),
+                "pose_estimation": section("pose_estimation").get("provider", "yolo_pose"),
+                "image_caption": section("image_caption").get("provider", "florence2-base"),
+                "image_embed": section("image_embed").get("provider", "clip"),
+                "face_recognition": section("face_recognition").get("provider", "insightface"),
+                "appearance": section("appearance").get("provider", "osnet"),
             },
             "endpoints": [
                 "/stt/transcribe",

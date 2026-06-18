@@ -1,13 +1,23 @@
-"""STT (Speech-to-Text) blueprint — Whisper provider, loaded at startup."""
+"""STT (Speech-to-Text) blueprint — provider chosen in config.toml, loaded at startup."""
 
 from flask import Blueprint, request
 
+from api.routes.config import compact, section
 from api.utils import error, success
 from services.stt import STT
 
 bp = Blueprint("stt", __name__, url_prefix="/stt")
 
-_stt = STT(provider="whisper")
+# Provider + tuning come from [stt] in config.toml (default "whisper" — non-breaking).
+# Set provider = "nemo" to use Chalk's local NemotronASR; [stt.nemo] tunes that provider.
+_cfg = section("stt")
+_provider = _cfg.get("provider", "whisper")
+_config = {}
+if _provider == "nemo":
+    _nemo = _cfg.get("nemo", {})
+    _config = compact({"model_path": _nemo.get("model_path"), "device": _nemo.get("device")})
+
+_stt = STT(provider=_provider, **_config)
 
 
 @bp.get("/providers")

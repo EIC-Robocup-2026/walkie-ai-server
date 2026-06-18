@@ -1,7 +1,8 @@
-"""Image Caption blueprint — PaliGemma provider, loaded at startup."""
+"""Image Caption blueprint — provider chosen in config.toml, lazy-loaded."""
 
 from flask import Blueprint, request
 
+from api.routes.config import section
 from api.utils import error, image_from_request_file, success
 from services import debug_viewer
 from services.image_caption import ImageCaption
@@ -14,7 +15,7 @@ _ic: ImageCaption | None = None
 def _get_ic() -> ImageCaption:
     global _ic
     if _ic is None:
-        _ic = ImageCaption(provider="florence2-base")
+        _ic = ImageCaption(provider=section("image_caption").get("provider", "florence2-base"))
         _ic.load_model()
     return _ic
 

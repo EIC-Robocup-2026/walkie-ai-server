@@ -1,25 +1,24 @@
 """Object Detection blueprint.
 
-Provider is selectable via the ``OBJECT_DETECTION_PROVIDER`` env var:
-  - "yolo" (default): fixed 365-class Objects365 detector, no masks.
+Provider is selectable via [object_detection] in config.toml:
+  - "yolo": fixed 365-class Objects365 detector, no masks.
   - "sam3": open-vocabulary concept segmentation (text prompts + masks; with
     no prompts it segments everything as unlabeled instances).
-  - "yoloe": open-vocabulary detection + segmentation (text prompts or a
-    prompt-free model when no prompts are given).
+  - "yoloe" (default): open-vocabulary detection + segmentation (text prompts
+    or a prompt-free model when no prompts are given).
 
-For SAM3 the checkpoint path can be set via ``SAM3_MODEL`` (weights must be
-downloaded manually). For YOLOE the text / prompt-free checkpoints can be set
-via ``YOLOE_MODEL`` / ``YOLOE_PF_MODEL`` (both auto-download by default).
+Per-provider model checkpoints live in [object_detection.<provider>]: SAM3
+weights must be downloaded manually; YOLO's model defaults to YOLO26l-seg;
+YOLOE's text / prompt-free checkpoints auto-download when left blank.
 
 Requests may pass optional ``prompts`` (comma-separated or repeated form field)
 to steer SAM3 / YOLOE; YOLO ignores them. Pass ``return_mask=true`` to include a
 base64 segmentation ``mask_b64`` per detection (where the provider supports it).
 """
 
-import os
-
 from flask import Blueprint, request
 
+from api.routes.config import compact, section
 from api.utils import error, image_from_request_file, mask_to_b64, pil_to_b64, success
 from services import debug_viewer
 from services.object_detection import ObjectDetection
@@ -27,17 +26,11 @@ from services.object_detection.base import DetectedObject
 
 bp = Blueprint("object_detection", __name__, url_prefix="/object-detection")
 
-_PROVIDER = os.environ.get("OBJECT_DETECTION_PROVIDER", "yoloe")
-_provider_config: dict = {}
-if _PROVIDER == "yolo":
-    _provider_config["model"] = os.environ.get("YOLO_MODEL", "YOLO26l-seg")  # Optional custom model path  
-if _PROVIDER == "sam3" and os.environ.get("SAM3_MODEL"):
-    _provider_config["model"] = os.environ["SAM3_MODEL"]
-if _PROVIDER == "yoloe":
-    if os.environ.get("YOLOE_MODEL"):
-        _provider_config["model"] = os.environ["YOLOE_MODEL"]
-    if os.environ.get("YOLOE_PF_MODEL"):
-        _provider_config["pf_model"] = os.environ["YOLOE_PF_MODEL"]
+_cfg = section("object_detection")
+_PROVIDER = _cfg.get("provider", "yoloe")
+# The [object_detection.<provider>] sub-table holds that provider's kwargs
+# (model, pf_model); empty strings are dropped so the provider default is used.
+_provider_config = compact(_cfg.get(_PROVIDER, {}))
 
 _od = ObjectDetection(provider=_PROVIDER, **_provider_config)
 _od.load_model()

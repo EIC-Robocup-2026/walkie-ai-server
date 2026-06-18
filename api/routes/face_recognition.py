@@ -6,6 +6,7 @@ out. Enrollment, names, and matching all live in the agent repo.
 
 from flask import Blueprint, request
 
+from api.routes.config import section
 from api.utils import error, image_from_request_file, success
 from services import debug_viewer
 from services.face_recognition import FaceRecognition
@@ -19,7 +20,7 @@ _fr: FaceRecognition | None = None
 def _get_fr() -> FaceRecognition:
     global _fr
     if _fr is None:
-        _fr = FaceRecognition(provider="insightface")
+        _fr = FaceRecognition(provider=section("face_recognition").get("provider", "insightface"))
         _fr.load_model()
     return _fr
 

@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "bitsandbytes>=0.49.2",
+    # Local NeMo-based ASR (FastConformer -> RNNT) used by the "nemo" STT provider.
+    # Editable path dep on Chalk's separate repo (sibling dir). NOTE: do NOT run that
+    # repo's setup.sh — it installs a CUDA-nightly torch that would clobber ours.
+    "eic-speech-nemo",
     "elevenlabs>=2.43.0",
     "faster-whisper>=1.2.1",
     "flask>=3.1.3",
@@ -26,3 +30,6 @@ dependencies = [
     "ultralytics>=8.4.40",
     "vllm>=0.19.1",
 ]
+
+[tool.uv.sources]
+eic-speech-nemo = { git = "https://github.com/chalkp/eic-speech-nemo.git" }

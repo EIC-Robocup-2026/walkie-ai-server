@@ -11,6 +11,7 @@ Pipeline by Chalk (EIC team); contract frozen in
 
 from flask import Blueprint, request
 
+from api.routes.config import section
 from api.utils import error, image_from_request_file, success
 from services import debug_viewer
 from services.appearance import Appearance
@@ -23,7 +24,7 @@ _ap: Appearance | None = None
 def _get_ap() -> Appearance:
     global _ap
     if _ap is None:
-        _ap = Appearance(provider="osnet")
+        _ap = Appearance(provider=section("appearance").get("provider", "osnet"))
         _ap.load_model()
     return _ap
 

@@ -80,9 +80,17 @@ is detectable. Cheap; ship it.
 
 ---
 
-## Recommended model: OSNet via torchreid (no training)
+## Recommended model: OSNet x1.0 (no training)
 
-Exactly what Chalk's reference implementation uses:
+> **As shipped:** the server now **vendors** the OSNet architecture
+> (`services/appearance/providers/osnet_model.py`, pure PyTorch) and loads the
+> ImageNet-pretrained weights from the Hugging Face Hub (`kaiyangzhou/osnet`,
+> `osnet_x1_0_imagenet.pth`) — the *same* checkpoint and contract as the
+> torchreid reference below, just without the `torchreid` dependency (its PEP
+> 517 build is broken and unmaintained). Nothing beyond `uv sync` is required.
+> The torchreid sketch below is kept for provenance.
+
+Chalk's original reference implementation used `torchreid`:
 
 ```bash
 pip install numpy cython && pip install --no-build-isolation \

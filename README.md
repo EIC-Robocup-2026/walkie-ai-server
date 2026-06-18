@@ -20,7 +20,7 @@
 | **Pose Estimation** | Detect human body keypoints (17 COCO) | `yolo_pose` (Ultralytics) |
 | **Image Captioning** | Generate captions / answer visual questions | `florence2`, `paligemma`, `google` (Gemini) |
 | **Face Recognition** | Detect faces & return L2-normalized embeddings for re-ID | `insightface` (RetinaFace + ArcFace `buffalo_l`) |
-| **Appearance re-ID** | Embed a person crop (clothing/body) for re-ID when the face is not visible | `osnet` (OSNet x1.0 via torchreid) |
+| **Appearance re-ID** | Embed a person crop (clothing/body) for re-ID when the face is not visible | `osnet` (OSNet x1.0, vendored) |
 | **LLM Serving** | Optional vLLM / Ollama sidecar | Qwen 3.5-9B (quantized) |
 
 
@@ -184,17 +184,14 @@ fusion, thresholds, and the people database. Pipeline by **Chalk (EIC team)** �
 `/embed` returns `data: { "embedding": [...] }` — the model embeds whatever image it
 is given (no person detection server-side).
 
-> **Install note:** `torchreid` (deep-person-reid) is not in `pyproject.toml` because
-> its PEP 517 metadata build is broken under build isolation — install it into the
-> venv manually (torch is already present):
->
-> ```bash
-> uv pip install cython
-> uv pip install --no-build-isolation "git+https://github.com/KaiyangZhou/deep-person-reid.git"
-> ```
->
-> The route lazy-loads on first request (pretrained `osnet_x1_0` weights
-> auto-download), so a missing torchreid never blocks server startup.
+> **No extra install:** the OSNet architecture is vendored in
+> `services/appearance/providers/osnet_model.py` (pure PyTorch, no `torchreid`),
+> so nothing beyond `uv sync` is needed. The route lazy-loads on first request
+> and fetches the ImageNet-pretrained `osnet_x1_0` weights from the Hugging Face
+> Hub (`kaiyangzhou/osnet`) — the same checkpoint torchreid auto-downloads —
+> caching them under `~/.cache/huggingface`. A network failure on that first
+> request never blocks server startup; point `model_path` at a local
+> `osnet_x1_0` `.pth` to run fully offline.
 
 ---
 

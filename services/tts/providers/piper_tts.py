@@ -31,8 +31,10 @@ class PiperProvider(TTSProvider):
             ) from exc
 
         if voice_path:
+            print(f"Loading Piper voice from path: {voice_path}")
             self.voice = PiperVoice.load(voice_path)
         else:
+            print(f"Loading Piper voice by name: {voice_name}")
             self.voice = PiperVoice.load(voice_name)
 
     def synthesize(self, text: str) -> bytes:

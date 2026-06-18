@@ -10,11 +10,13 @@ from typing import Any
 
 from ..base import STTProvider
 from .google import GoogleSTTProvider
+from .nemo import NemoSTTProvider
 from .whisper import WhisperSTTProvider
 
 # Provider registry - add new providers here
 PROVIDERS: dict[str, type[STTProvider]] = {
     "google": GoogleSTTProvider,
+    "nemo": NemoSTTProvider,
     "whisper": WhisperSTTProvider,
 }
 

@@ -1,7 +1,8 @@
-"""Pose Estimation blueprint — YOLO-Pose provider, loaded at startup."""
+"""Pose Estimation blueprint — provider chosen in config.toml, loaded at startup."""
 
 from flask import Blueprint, request
 
+from api.routes.config import section
 from api.utils import error, image_from_request_file, pil_to_b64, success
 from services import debug_viewer
 from services.pose_estimation import PoseEstimation
@@ -9,7 +10,7 @@ from services.pose_estimation.base import PersonPose, PoseKeypoint
 
 bp = Blueprint("pose_estimation", __name__, url_prefix="/pose-estimation")
 
-_pe = PoseEstimation(provider="yolo_pose")
+_pe = PoseEstimation(provider=section("pose_estimation").get("provider", "yolo_pose"))
 _pe.load_model()
 
 

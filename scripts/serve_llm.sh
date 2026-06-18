@@ -18,7 +18,7 @@ if [ "$MODE" == "vllm" ]; then
         --tool-call-parser qwen3_coder \
         --enable-auto-tool-choice \
         --enable-prefix-caching \
-        --max-model-len 8192 \
+        --max-model-len 65536 \
         --gpu-memory-utilization 0.8 \
         --trust-remote-code
 

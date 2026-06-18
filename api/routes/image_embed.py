@@ -1,13 +1,14 @@
-"""Image Embedding blueprint — CLIP provider, loaded at startup."""
+"""Image Embedding blueprint — provider chosen in config.toml, loaded at startup."""
 
 from flask import Blueprint, request
 
+from api.routes.config import section
 from api.utils import error, image_from_request_file, success
 from services.image_embed import Embedding
 
 bp = Blueprint("image_embed", __name__, url_prefix="/image-embed")
 
-_emb = Embedding(provider="clip")
+_emb = Embedding(provider=section("image_embed").get("provider", "clip"))
 _emb.load_model()
 
 

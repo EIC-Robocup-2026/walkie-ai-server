@@ -1,7 +1,8 @@
-"""TTS (Text-to-Speech) blueprint — ElevenLabs provider, lazy-loaded on first request."""
+"""TTS (Text-to-Speech) blueprint — provider chosen in config.toml, lazy-loaded on first request."""
 
 from flask import Blueprint, Response, request, stream_with_context
 
+from api.routes.config import section
 from api.utils import error, success
 from services.tts import TTS
 
@@ -28,7 +29,12 @@ def _infer_content_type(formats: list[str]) -> str:
 def _get_tts() -> tuple[TTS, str]:
     global _tts, _audio_content_type
     if _tts is None:
-        _tts = TTS(provider="elevenlabs", voice_id="fDeOZu1sNd7qahm2fV4k")
+        # Provider + voice come from [tts] in config.toml; [tts.<provider>] holds
+        # that provider's kwargs (piper: voice_path/voice_name, elevenlabs: voice_id).
+        cfg = section("tts")
+        provider = cfg.get("provider", "piper")
+        params = dict(cfg.get(provider, {}))
+        _tts = TTS(provider=provider, **params)
         _audio_content_type = _infer_content_type(_tts.get_supported_formats())
     assert _audio_content_type is not None
     return _tts, _audio_content_type

@@ -1,0 +1,92 @@
+# Central configuration for the API serving layer (api/routes/*).
+#
+# Secrets stay in .env (ELEVENLABS_API_KEY, GOOGLE_* credentials); everything
+# tunable — provider selection, model paths/checkpoints, devices, and the
+# vision debug toggle — lives here so models/providers can be swapped without
+# touching code. Loaded once at startup by api/routes/config.py.
+#
+# Each [service] table has a `provider` key; an optional [service.<provider>]
+# sub-table holds that provider's kwargs (passed straight to its constructor).
+# An empty string ("") means "unset — use the provider's own default".
+
+[vision]
+# Pop up Tkinter debug windows showing each vision inference. Disable in prod.
+# Requires a display (X / Wayland) on the server. (was VISION_DEBUG in .env)
+debug = true
+
+# ---------------------------------------------------------------------------
+# STT — Speech-to-Text  (/stt/transcribe)
+# ---------------------------------------------------------------------------
+[stt]
+# "whisper", "google", or "nemo" (Chalk's local NemotronASR).
+provider = "whisper"
+
+[stt.nemo]
+# Only used when provider = "nemo". Point model_path at the downloaded
+# nemotron_asr.pt; device is "cuda" / "cpu" ("" = auto-detect).
+model_path = "weights/nemotron_asr.pt"
+device = ""
+
+# ---------------------------------------------------------------------------
+# TTS — Text-to-Speech  (/tts/synthesize, /tts/synthesize-stream)
+# ---------------------------------------------------------------------------
+[tts]
+# "piper" (local) or "elevenlabs" (needs ELEVENLABS_API_KEY in .env).
+provider = "piper"
+
+[tts.piper]
+voice_path = "./voices/en_US-lessac-medium.onnx"
+voice_name = "en_US-lessac-medium"
+
+[tts.elevenlabs]
+voice_id = "fDeOZu1sNd7qahm2fV4k"
+
+# ---------------------------------------------------------------------------
+# Object detection  (/object-detection/detect)
+# ---------------------------------------------------------------------------
+[object_detection]
+# "yolo" (fixed 365-class, no masks), "sam3" (open-vocab concept seg), or
+# "yoloe" (open-vocab detect + seg, default).
+provider = "yoloe"
+
+[object_detection.yolo]
+model = "YOLO26l-seg"
+
+[object_detection.sam3]
+# Checkpoint must be downloaded manually.
+model = ""
+
+[object_detection.yoloe]
+# Both auto-download by default.
+model = ""
+pf_model = ""
+
+# ---------------------------------------------------------------------------
+# Pose estimation  (/pose-estimation/estimate)
+# ---------------------------------------------------------------------------
+[pose_estimation]
+provider = "yolo_pose"
+
+# ---------------------------------------------------------------------------
+# Image caption  (/image-caption/caption, /image-caption/caption-batch)
+# ---------------------------------------------------------------------------
+[image_caption]
+provider = "florence2-base"
+
+# ---------------------------------------------------------------------------
+# Image embedding  (/image-embed/embed-image, embed-text, similarity)
+# ---------------------------------------------------------------------------
+[image_embed]
+provider = "clip"
+
+# ---------------------------------------------------------------------------
+# Face recognition  (/face-recognition/embed, /face-recognition/info)
+# ---------------------------------------------------------------------------
+[face_recognition]
+provider = "insightface"
+
+# ---------------------------------------------------------------------------
+# Appearance / attire re-ID  (/appearance/embed, /appearance/info)
+# ---------------------------------------------------------------------------
+[appearance]
+provider = "osnet"
