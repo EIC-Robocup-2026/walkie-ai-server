@@ -19,13 +19,14 @@ debug = true
 # ---------------------------------------------------------------------------
 [stt]
 # "whisper", "google", or "nemo" (Chalk's local NemotronASR).
-provider = "whisper"
+provider = "nemo"
 
 [stt.nemo]
 # Only used when provider = "nemo". Point model_path at the downloaded
 # nemotron_asr.pt; device is "cuda" / "cpu" ("" = auto-detect).
 model_path = "weights/nemotron_asr.pt"
 device = ""
+precision = "fp8"
 
 # ---------------------------------------------------------------------------
 # TTS — Text-to-Speech  (/tts/synthesize, /tts/synthesize-stream)

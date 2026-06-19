@@ -37,6 +37,8 @@ class NemoSTTProvider(STTProvider):
                   (default: env ``NEMO_ASR_MODEL_PATH`` or ``weights/nemotron_asr.pt``).
                 - device: Compute device "cuda" or "cpu"
                   (default: "cuda" if available, else "cpu").
+                - precision: Floating-point precision "fp32", "bf16" (bf16 might be broken), or "fp8"
+                  (default: "fp32").
         """
         self.model_path = config.get("model_path") or os.getenv(
             "NEMO_ASR_MODEL_PATH", "weights/nemotron_asr.pt"
@@ -45,6 +47,7 @@ class NemoSTTProvider(STTProvider):
         if not device:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
+        self.precision = config.get("precision","fp32") 
 
         self.model = None
         self._load_model()
@@ -70,7 +73,7 @@ class NemoSTTProvider(STTProvider):
 
         logger.info("Loading NeMo ASR: %s (device=%s)", self.model_path, self.device)
         try:
-            self.model = NemotronASR.load_from_pt(self.model_path, device=self.device)
+            self.model = NemotronASR.load_from_pt(self.model_path, device=self.device, precision=self.precision)
         except Exception as exc:
             if self.device != "cpu":
                 logger.warning(

@@ -31,6 +31,25 @@ def image_from_bytes(data: bytes) -> Image.Image:
     return Image.open(io.BytesIO(data)).convert("RGB")
 
 
+def crop_pil(img: Image.Image, bbox, margin: int = 20) -> Image.Image:
+    """Crop *img* to ``bbox`` (x1, y1, x2, y2) with a clamped pixel *margin*.
+
+    The margin gives the captioning / embedding models some surrounding context
+    (ConceptGraphs pads its feature crops by 20 px for the same reason). Mirrors
+    the agent-side ``walkie_graphs`` crop so a fused crop matches the thumbnail
+    the caller stores. Returns the full image if the box degenerates.
+    """
+    w, h = img.size
+    x1, y1, x2, y2 = bbox
+    x1 = max(0, int(x1) - margin)
+    y1 = max(0, int(y1) - margin)
+    x2 = min(w, int(x2) + margin)
+    y2 = min(h, int(y2) + margin)
+    if x2 <= x1 or y2 <= y1:
+        return img
+    return img.crop((x1, y1, x2, y2))
+
+
 def pil_to_b64(img: Image.Image | None, fmt: str = "PNG") -> str | None:
     """Encode a PIL Image to a base64 string, or return None."""
     if img is None:

@@ -17,10 +17,17 @@ dependencies = [
     "google-genai>=1.73.1",
     "huggingface-hub>=1.11.0",
     # Face recognition (RetinaFace + ArcFace, 512-d normalized embeddings).
-    # Runs on the onnxruntime (CPU) already pulled in transitively. On the GPU
-    # box, swap that for onnxruntime-gpu (same `onnxruntime` import) for speed —
-    # don't install both at once, they collide. See README "Face recognition".
     "insightface>=0.7.3",
+    # GPU onnxruntime for InsightFace — runs RetinaFace/ArcFace on CUDA (~15x
+    # faster than CPU: ~36ms vs ~550ms/req). Provides the same `onnxruntime`
+    # import, so it also satisfies faster-whisper / insightface / piper-tts; the
+    # CPU `onnxruntime` they pull in transitively is dropped via the [tool.uv]
+    # override below (the two distributions share files and collide). Needs
+    # CUDA 12 / cuDNN 9 on the loader path — provided by torch's bundled
+    # nvidia-*-cu12 wheels, which scripts/run_app.sh puts on LD_LIBRARY_PATH.
+    # Pinned: 1.25-1.27 ship Windows-only wheels; 1.24.4 is the latest with a
+    # manylinux cp312 wheel (verified on the RTX 5090 / sm_120).
+    "onnxruntime-gpu==1.24.4",
     "pillow>=12.2.0",
     "piper-tts>=1.4.2",
     "pytest>=9.0.3",
@@ -30,6 +37,22 @@ dependencies = [
     "ultralytics>=8.4.40",
     "vllm>=0.19.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# On the robot / dev box the shell sources /opt/ros, which puts ROS's pytest
+# plugins on the path; several (launch_testing*) crash collection (missing
+# `lark`, unknown hooks). We use none of them, so disable them explicitly
+# (`-p no:` is a no-op when a plugin is absent).
+addopts = "-p no:launch_testing -p no:launch_testing_ros -p no:launch_pytest -p no:launch_ros -p no:ament_lint -p no:ament_flake8 -p no:ament_pep257 -p no:ament_mypy -p no:ament_copyright -p no:ament_xmllint"
+
+[tool.uv]
+# Drop the CPU `onnxruntime` that faster-whisper / insightface / piper-tts
+# request transitively — we install onnxruntime-gpu instead (same `onnxruntime`
+# import; the two distributions collide if both are present). The always-false
+# 'never' marker keeps the override matching the requirement while resolving to
+# nothing on every platform.
+override-dependencies = ["onnxruntime; sys_platform == 'never'"]
 
 [tool.uv.sources]
 eic-speech-nemo = { git = "https://github.com/chalkp/eic-speech-nemo.git" }

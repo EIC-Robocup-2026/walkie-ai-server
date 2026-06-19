@@ -2,16 +2,7 @@
 
 from flask import Flask
 
-from api.routes import (
-    appearance,
-    face_recognition,
-    image_caption,
-    image_embed,
-    object_detection,
-    pose_estimation,
-    stt,
-    tts,
-)
+from api.routes import image, stt, tts
 from api.routes.config import section
 
 
@@ -20,12 +11,7 @@ def create_app() -> Flask:
 
     app.register_blueprint(stt.bp)
     app.register_blueprint(tts.bp)
-    app.register_blueprint(object_detection.bp)
-    app.register_blueprint(pose_estimation.bp)
-    app.register_blueprint(image_caption.bp)
-    app.register_blueprint(image_embed.bp)
-    app.register_blueprint(face_recognition.bp)
-    app.register_blueprint(appearance.bp)
+    app.register_blueprint(image.bp)
 
     @app.get("/")
     def index():
@@ -44,12 +30,7 @@ def create_app() -> Flask:
             "endpoints": [
                 "/stt/transcribe",
                 "/tts/synthesize", "/tts/synthesize-stream",
-                "/object-detection/detect",
-                "/pose-estimation/estimate",
-                "/image-caption/caption", "/image-caption/caption-batch",
-                "/image-embed/embed-image", "/image-embed/embed-text", "/image-embed/similarity",
-                "/face-recognition/embed", "/face-recognition/info",
-                "/appearance/embed", "/appearance/info",
+                "/image/process", "/image/embed-text",
             ],
         }
 
