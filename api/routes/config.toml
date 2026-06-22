@@ -132,7 +132,10 @@ center_weight = 0.5
 # the gripper 180 about its own Z (the approach) whenever its X axis points below
 # horizontal, so X always points up. Re-rolls the wrist only; approach unchanged.
 # Per-request wins.
-upright_x = true
+upright_x = false
+# Invert the upright-X target: force X into the lower ("-up") hemisphere (X down)
+# instead of up. Only has an effect when upright_x is on. Per-request wins.
+upright_x_inverse = false
 # Antipodal validation (used only when a request sets antipodal = true).
 select_margin_m = 0.02
 normal_radius_m = 0.02

@@ -130,6 +130,10 @@ class GraspNetProvider:
         # hanging upside-down on otherwise-equivalent side grasps. A per-request
         # upright_x wins. See _emit_rotation / infer().
         self._upright_x = b("upright_x", True)
+        # Invert the upright-X target: point X into the lower ("-up") hemisphere
+        # (X down) instead of up. Only has an effect when upright_x is on (side
+        # grasps). A per-request upright_x_inverse wins. See _emit_rotation / infer().
+        self._upright_x_inverse = b("upright_x_inverse", False)
 
         # End-effector convention. GraspNet emits rotations with the approach
         # along +X (col-0). roll/pitch/yaw_offset_deg post-rotate each *output*
@@ -243,6 +247,7 @@ class GraspNetProvider:
         max_approach_up: float | None = None,
         center_weight: float | None = None,
         upright_x: bool | None = None,
+        upright_x_inverse: bool | None = None,
         **_ignored: Any,
     ) -> list[dict]:
         """Generate grasps for an ``(N, 3)`` cloud, in the cloud's own frame.
@@ -272,7 +277,9 @@ class GraspNetProvider:
         output rotation offset is applied, any grasp whose X axis points below
         horizontal (``X·up < 0``) is rolled 180 about its own Z (the approach),
         so X always points up. This only re-rolls the wrist — the approach and
-        contact geometry are unchanged.
+        contact geometry are unchanged. ``upright_x_inverse`` (default config
+        value, default False) flips the target so X is forced **down** (into the
+        ``-up`` hemisphere) instead; it only matters when ``upright_x`` is on.
         """
         try:
             self._ensure_loaded()
@@ -304,11 +311,17 @@ class GraspNetProvider:
             # Centre bias is "side"-only; per-request override wins over config.
             cen_w = self._center_weight if center_weight is None else float(center_weight)
             cen_w = cen_w if preference == "side" else 0.0
-            # Upright-X flip is "side"-only; per-request override wins over config.
-            # When on, pass the "up" vector down to _emit_rotation so it can roll
-            # the gripper so its X axis points up; None disables the flip.
+            # Upright-X flip is "side"-only; per-request overrides win over config.
+            # x_target is the direction the gripper's X axis should point toward
+            # ("up" normally, "-up"/down when inverted), passed to _emit_rotation;
+            # None disables the flip.
             up_x = self._upright_x if upright_x is None else bool(upright_x)
-            flip_up = up_unit if (up_x and preference == "side") else None
+            up_x_inv = (
+                self._upright_x_inverse if upright_x_inverse is None else bool(upright_x_inverse)
+            )
+            x_target = None
+            if up_x and preference == "side":
+                x_target = -up_unit if up_x_inv else up_unit
 
             # 1. Filter the object cloud (voxel + statistical-outlier + optional cluster).
             obj = self._filter_world(pts_in, voxel, bool(outlier_removal), bool(cluster_filter))
@@ -350,7 +363,7 @@ class GraspNetProvider:
             #    the "side"-only centrality bonus when cen_w > 0.
             if antipodal:
                 grasps = self._antipodal_select(
-                    gg, obj, n_out, up_unit, preference, weight, cen_w, flip_up
+                    gg, obj, n_out, up_unit, preference, weight, cen_w, x_target
                 )
             else:
                 if pref_active:
@@ -364,7 +377,7 @@ class GraspNetProvider:
                             np.asarray(gg.translations), centroid, scale
                         )
                     gg = gg[np.argsort(-blended)]
-                grasps = self._as_dicts(gg[:n_out], flip_up)
+                grasps = self._as_dicts(gg[:n_out], x_target)
 
             print(
                 f"[grasp] {len(grasps)} grasp(s) | {len(pts_in)} pts in | "
@@ -544,28 +557,29 @@ class GraspNetProvider:
         return self._R_offset
 
     def _emit_rotation(
-        self, rot: np.ndarray, flip_up: np.ndarray | None = None
+        self, rot: np.ndarray, x_target: np.ndarray | None = None
     ) -> list[list[float]]:
         """Apply the configured rotation offset and return a JSON-friendly 3x3.
 
-        When ``flip_up`` (a unit "up" in the cloud frame) is given and the
-        offset rotation's X axis points into the lower hemisphere
-        (``X·flip_up < 0``), roll the gripper 180 about its own Z so X points
-        up. ``None`` (the default) leaves the rotation as-is.
+        When ``x_target`` (a unit direction in the cloud frame) is given and the
+        offset rotation's X axis points away from it (``X·x_target < 0``), roll
+        the gripper 180 about its own Z so X swings toward ``x_target``. ``None``
+        (the default) leaves the rotation as-is. The upright-X behaviour passes
+        ``+up`` (X ends up pointing up); its inverse passes ``-up`` (X down).
         """
         r = np.asarray(rot, dtype=np.float64) @ self._R_offset
-        if flip_up is not None and float(r[:, 0] @ np.asarray(flip_up, dtype=np.float64)) < 0.0:
+        if x_target is not None and float(r[:, 0] @ np.asarray(x_target, dtype=np.float64)) < 0.0:
             r = r @ self._RZ_180
         return [[float(v) for v in row] for row in r]
 
-    def _as_dicts(self, gg, flip_up: np.ndarray | None = None) -> list[dict]:
+    def _as_dicts(self, gg, x_target: np.ndarray | None = None) -> list[dict]:
         """Serialize a GraspGroup to grasp dicts (no antipodal refinement)."""
         out = []
         for k in range(len(gg)):
             out.append(
                 {
                     "translation": [float(x) for x in gg.translations[k]],
-                    "rotation": self._emit_rotation(gg.rotation_matrices[k], flip_up),
+                    "rotation": self._emit_rotation(gg.rotation_matrices[k], x_target),
                     "width": float(gg.widths[k]),
                     "score": float(gg.scores[k]),
                     "antipodal_score": None,
@@ -586,7 +600,7 @@ class GraspNetProvider:
         preference: str = "none",
         weight: float = 0.0,
         center_weight: float = 0.0,
-        flip_up: np.ndarray | None = None,
+        x_target: np.ndarray | None = None,
     ) -> list[dict]:
         """Keep grasps that lie on the object surface; refine width/centre + score."""
         obj_normals = self._estimate_normals(obj_pts)
@@ -638,7 +652,7 @@ class GraspNetProvider:
             out.append(
                 {
                     "translation": [float(x) for x in d["center"]],
-                    "rotation": self._emit_rotation(d["rot"], flip_up),
+                    "rotation": self._emit_rotation(d["rot"], x_target),
                     "width": float(d["width"]),
                     "score": float(d["gn"]),
                     "antipodal_score": float(d["anti"]),

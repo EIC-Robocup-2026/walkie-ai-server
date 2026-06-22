@@ -119,16 +119,24 @@ def test_emit_rotation_upright_x_flip():
                   [-1.0, 0.0, 0.0]])
     assert R[:, 0] @ up < 0                      # sanity: X starts pointing down
 
-    # flip_up given + X below horizontal → roll 180 about Z: X flips up, Z held.
+    # x_target = +up + X below horizontal → roll 180 about Z: X flips up, Z held.
     flipped = np.array(prov._emit_rotation(R, up))
     assert flipped[:, 0] @ up > 0
     assert np.allclose(flipped[:, 2], R[:, 2])
 
-    # flip_up=None passes the rotation through untouched (the offset is identity).
+    # x_target=None passes the rotation through untouched (the offset is identity).
     assert np.allclose(np.array(prov._emit_rotation(R, None)), R)
 
-    # X already up → no flip even when flip_up is supplied.
+    # X already toward the target → no flip even when x_target is supplied.
     assert np.allclose(np.array(prov._emit_rotation(flipped, up)), flipped)
+
+    # Inverse target (-up): X is forced into the lower hemisphere instead. R
+    # already has X down, so it passes through; the upright "flipped" rotation
+    # (X up) gets rolled back down, with Z held either way.
+    assert np.allclose(np.array(prov._emit_rotation(R, -up)), R)
+    inv = np.array(prov._emit_rotation(flipped, -up))
+    assert inv[:, 0] @ up < 0
+    assert np.allclose(inv[:, 2], flipped[:, 2])
 
 
 # ---------------------------------------------------------------------------

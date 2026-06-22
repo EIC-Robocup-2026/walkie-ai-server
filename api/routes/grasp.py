@@ -13,7 +13,7 @@ A pure **cloud → grasp poses** endpoint. The request is multipart:
          "outlier_removal": true, "cluster_filter": false,
          "approach_preference": "side", "up": [0, 0, 1],
          "approach_weight": 1.0, "max_approach_up": 0.2, "center_weight": 0.5,
-         "upright_x": true}
+         "upright_x": true, "upright_x_inverse": false}
 
     ``approach_preference`` (``"side"`` / ``"top"`` / ``"none"``) softly re-ranks
     grasps by how their approach aligns with the ``up`` vector — given **in the
@@ -25,7 +25,8 @@ A pure **cloud → grasp poses** endpoint. The request is multipart:
     1 = disabled) are dropped outright. For ``side`` only, ``center_weight``
     additionally favours grasps whose centre is near the cloud centroid (grab the
     middle of the object, not an edge), and ``upright_x`` (default true) rolls the
-    gripper 180 about its approach when needed so its X axis points up.
+    gripper 180 about its approach when needed so its X axis points up —
+    ``upright_x_inverse`` (default false) instead forces X down.
 
 The response is ``{"grasps": [...], "count": n}`` with each grasp shaped
 ``{"translation": [x,y,z], "rotation": [[..3x3..]], "width": float, "score": float,
@@ -63,6 +64,7 @@ _OPT_KEYS = (
     "max_approach_up",
     "center_weight",
     "upright_x",
+    "upright_x_inverse",
 )
 
 
