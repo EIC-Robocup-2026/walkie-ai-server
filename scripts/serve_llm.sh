@@ -19,10 +19,12 @@ if [ "$MODE" == "vllm" ]; then
         --enable-auto-tool-choice \
         --enable-prefix-caching \
         --max-model-len 65536 \
-        --gpu-memory-utilization 0.8 \
+        --gpu-memory-utilization 0.6 \
         --trust-remote-code
 
 elif [ "$MODE" == "ollama" ]; then
     export OLLAMA_HOST="0.0.0.0:8000"
     ollama run qwen3.5:9b
 fi
+
+        # --kv-cache-dtype turboquant_k8v4 \

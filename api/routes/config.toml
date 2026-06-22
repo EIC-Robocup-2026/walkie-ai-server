@@ -19,7 +19,7 @@ debug = true
 # ---------------------------------------------------------------------------
 [stt]
 # "whisper", "google", or "nemo" (Chalk's local NemotronASR).
-provider = "nemo"
+provider = "whisper"
 
 [stt.nemo]
 # Only used when provider = "nemo". Point model_path at the downloaded
@@ -91,3 +91,59 @@ provider = "insightface"
 # ---------------------------------------------------------------------------
 [appearance]
 provider = "osnet"
+
+# ---------------------------------------------------------------------------
+# Grasp-pose generation  (/grasp) — GraspNet-1Billion on a supplied point cloud
+# ---------------------------------------------------------------------------
+[grasp]
+provider = "graspnet"
+
+[grasp.graspnet]
+# graspnet-baseline checkout (model code + pointnet2/knn CUDA ops) and the
+# RealSense checkpoint. "" on device = auto (CUDA when available). The CUDA ops
+# under graspnet_root must be built against this venv's torch.
+graspnet_root = "~/graspnet-baseline"
+checkpoint_path = "~/graspnet-baseline/logs/log_rs/checkpoint-rs.tar"
+device = ""
+# Inference / sampling.
+num_point = 10000
+num_view = 300
+voxel_size = 0.005
+min_points = 200
+rerank_pool_size = 200
+# Object-cloud filtering.
+outlier_nb_neighbors = 20
+outlier_std_ratio = 2.0
+cluster_eps = 0.02
+cluster_min_samples = 10
+# Approach-bias re-rank (used only when a request sets approach_preference to
+# "side"/"top" and supplies an "up" vector in the cloud frame). Blend weight for
+# the added [0,1] approach-alignment bonus; a per-request approach_weight wins.
+approach_weight = 1.0
+# Hard-drop "bottom-up" grasps under a "side"/"top" preference: max allowed
+# approach·up (col-0 dotted with "up"). 0 keeps only at/below-horizontal
+# approaches, a small positive value tolerates a slight upward tilt, 1 disables.
+max_approach_up = 0.2
+# Centre-bias re-rank ("side" preference only): also favour grasps whose centre
+# sits near the object cloud's centroid (grab the middle, not an edge). Blend
+# weight for the added [0,1] centrality bonus; 0 disables. Per-request wins.
+center_weight = 0.5
+# Upright-X flip ("side" preference only): after the output rotation offset, roll
+# the gripper 180 about its own Z (the approach) whenever its X axis points below
+# horizontal, so X always points up. Re-rolls the wrist only; approach unchanged.
+# Per-request wins.
+upright_x = true
+# Antipodal validation (used only when a request sets antipodal = true).
+select_margin_m = 0.02
+normal_radius_m = 0.02
+normal_max_nn = 30
+antipodal_r_tol_m = 0.01
+antipodal_min_pts = 4
+width_clearance_m = 0.01
+max_gripper_width_m = 0.10
+# Output rotation offset, applied about the gripper's own X/Y/Z axes (URDF/ROS
+# RPY order Rz·Ry·Rx) to match the robot's tool convention. Pitch re-points
+# "forward": +90 puts +Z onto the approach (toward the object), -90 onto -Z.
+roll_offset_deg = 0
+pitch_offset_deg = 90
+yaw_offset_deg = 0

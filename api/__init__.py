@@ -2,7 +2,7 @@
 
 from flask import Flask
 
-from api.routes import image, stt, tts
+from api.routes import grasp, image, stt, tts
 from api.routes.config import section
 
 
@@ -12,6 +12,7 @@ def create_app() -> Flask:
     app.register_blueprint(stt.bp)
     app.register_blueprint(tts.bp)
     app.register_blueprint(image.bp)
+    app.register_blueprint(grasp.bp)
 
     @app.get("/")
     def index():
@@ -26,11 +27,13 @@ def create_app() -> Flask:
                 "image_embed": section("image_embed").get("provider", "clip"),
                 "face_recognition": section("face_recognition").get("provider", "insightface"),
                 "appearance": section("appearance").get("provider", "osnet"),
+                "grasp": section("grasp").get("provider", "graspnet"),
             },
             "endpoints": [
                 "/stt/transcribe",
                 "/tts/synthesize", "/tts/synthesize-stream",
                 "/image/process", "/image/embed-text",
+                "/grasp",
             ],
         }
 

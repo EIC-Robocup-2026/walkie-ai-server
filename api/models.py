@@ -13,6 +13,7 @@ from __future__ import annotations
 from api.routes.config import compact, section
 from services.appearance import Appearance
 from services.face_recognition import FaceRecognition
+from services.grasp import Grasp
 from services.image_caption import ImageCaption
 from services.image_embed import Embedding
 from services.object_detection import ObjectDetection
@@ -53,6 +54,7 @@ def get_embedding() -> Embedding:
 _caption: ImageCaption | None = None
 _face: FaceRecognition | None = None
 _appearance: Appearance | None = None
+_grasp: Grasp | None = None
 
 
 def get_caption() -> ImageCaption:
@@ -83,3 +85,16 @@ def get_appearance() -> Appearance:
         )
         _appearance.load_model()
     return _appearance
+
+
+def get_grasp() -> Grasp:
+    global _grasp
+    if _grasp is None:
+        # GraspNet is heavy (its own VRAM + pointnet2/knn CUDA ops) and only needed
+        # for manipulation, so it loads on first /grasp call. The [grasp.<provider>]
+        # sub-table holds the provider's kwargs (checkpoint/root/device/tunables).
+        cfg = section("grasp")
+        provider = cfg.get("provider", "graspnet")
+        _grasp = Grasp(provider=provider, **compact(cfg.get(provider, {})))
+        _grasp.load_model()
+    return _grasp

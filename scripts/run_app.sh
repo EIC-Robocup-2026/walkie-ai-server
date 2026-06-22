@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # Ensure the venv + deps exist before we probe it for CUDA libs below.
-uv sync
+# uv sync
 
 # onnxruntime-gpu (InsightFace face recognition) dlopens its CUDA execution
 # provider, which needs CUDA 12 / cuDNN 9. Those libs ship inside torch's

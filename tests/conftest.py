@@ -3,6 +3,7 @@
 import io
 import struct
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -29,6 +30,46 @@ def sample_image_bytes() -> bytes:
     img = Image.new("RGB", (100, 100), color=(100, 149, 237))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def sample_cloud_npy() -> bytes:
+    """A synthetic graspable object — points on a small (4 cm) box ~0.4 m in front
+    of the camera, in the optical frame (X-right, Y-down, Z-forward). Serialized as
+    ``.npy`` bytes, the shape the /grasp endpoint expects."""
+    rng = np.random.default_rng(0)
+    half = 0.02  # 4 cm box → 0.04 m gripper-scale object
+    center = np.array([0.0, 0.0, 0.4], dtype=np.float32)
+    faces = []
+    for axis in range(3):
+        for sign in (-1.0, 1.0):
+            pts = rng.uniform(-half, half, size=(500, 3)).astype(np.float32)
+            pts[:, axis] = sign * half
+            faces.append(pts)
+    box = np.concatenate(faces, axis=0) + center
+    buf = io.BytesIO()
+    np.save(buf, box.astype(np.float32), allow_pickle=False)
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def sample_can_npy() -> bytes:
+    """A synthetic upright can — a vertical cylinder (r=3 cm, h=12 cm) ~0.4 m in
+    front of the camera, in the optical frame (X-right, Y-down, Z-forward), so its
+    axis runs along Y. Used to exercise the side/top approach preference: world-up
+    is ``-Y`` (gravity = ``+Y``). Serialized as ``.npy`` bytes."""
+    rng = np.random.default_rng(0)
+    r, h, zc = 0.03, 0.12, 0.40
+    th = rng.uniform(0, 2 * np.pi, 2500)
+    yy = rng.uniform(-h / 2, h / 2, 2500)
+    side = np.stack([r * np.cos(th), yy, zc + r * np.sin(th)], axis=1)
+    th2 = rng.uniform(0, 2 * np.pi, 500)
+    rr = r * np.sqrt(rng.uniform(0, 1, 500))
+    cap = np.stack([rr * np.cos(th2), np.full(500, -h / 2), zc + rr * np.sin(th2)], axis=1)
+    can = np.vstack([side, cap]).astype(np.float32)
+    buf = io.BytesIO()
+    np.save(buf, can, allow_pickle=False)
     return buf.getvalue()
 
 

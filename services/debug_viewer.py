@@ -37,6 +37,7 @@ WINDOW_OBJECT_DETECTION = "vision-debug: object_detection"
 WINDOW_POSE_ESTIMATION = "vision-debug: pose_estimation"
 WINDOW_FACE_RECOGNITION = "vision-debug: face_recognition"
 WINDOW_APPEARANCE = "vision-debug: appearance"
+WINDOW_GRASP = "vision-debug: grasp"
 
 
 def is_enabled() -> bool:
@@ -54,6 +55,9 @@ class _DebugViewer:
 
     def __init__(self) -> None:
         self._queue: queue.Queue[_Frame] = queue.Queue(maxsize=16)
+        # Grasp updates ride a separate queue — they carry a (cloud, grasps)
+        # 3D scene rendered with matplotlib rather than a ready-made image.
+        self._grasp_queue: queue.Queue[tuple] = queue.Queue(maxsize=4)
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._failed = False
@@ -79,6 +83,21 @@ class _DebugViewer:
             except queue.Empty:
                 pass
 
+    def push_grasp(
+        self, cloud: np.ndarray, grasps: list, rotation_offset=None
+    ) -> None:
+        if self._failed:
+            return
+        item = (cloud, grasps, rotation_offset)
+        try:
+            self._grasp_queue.put_nowait(item)
+        except queue.Full:
+            try:
+                self._grasp_queue.get_nowait()
+                self._grasp_queue.put_nowait(item)
+            except queue.Empty:
+                pass
+
     def _run(self) -> None:
         try:
             import tkinter as tk
@@ -99,6 +118,8 @@ class _DebugViewer:
         windows: dict[str, tuple[tk.Toplevel, tk.Label]] = {}
         # Keep PhotoImage refs alive — Tk will garbage-collect them otherwise.
         photo_refs: dict[str, "ImageTk.PhotoImage"] = {}
+        # Lazily-built matplotlib 3D window for grasps: {top, fig, ax, canvas}.
+        grasp_ui: dict = {}
 
         def pump() -> None:
             drained = 0
@@ -128,6 +149,20 @@ class _DebugViewer:
                     top.geometry(f"{frame.image.width}x{frame.image.height}")
                 except Exception as exc:
                     print(f"[VISION_DEBUG] failed to render {frame.window}: {exc}")
+
+            # Grasp scene (only the latest matters — drain to the newest).
+            latest = None
+            while True:
+                try:
+                    latest = self._grasp_queue.get_nowait()
+                except queue.Empty:
+                    break
+            if latest is not None:
+                try:
+                    _render_grasp_window(tk, root, grasp_ui, *latest)
+                except Exception as exc:
+                    print(f"[VISION_DEBUG] failed to render grasp: {exc}")
+
             root.after(40, pump)
 
         def _hide_window(name: str) -> None:
@@ -306,3 +341,163 @@ def show_appearance(image: Image.Image, embedding: "list[float]") -> None:
     _draw_text_block(bgr, [f"dim={len(embedding)} norm={norm:.3f}"])
     print(f"[VISION_DEBUG appearance] dim={len(embedding)}")
     viewer.push(WINDOW_APPEARANCE, _bgr_to_pil(bgr))
+
+
+# ----------------------------------------------------------------------------
+# Grasp viewer — a 3D scene (matplotlib), not a 2D image
+# ----------------------------------------------------------------------------
+#
+# The grasp output is a point cloud plus 6-DOF poses, so it can't be drawn into
+# the Tk image pipeline above. We render it with a matplotlib 3D axes embedded
+# in the *same* Tk worker thread/root the image windows use — that route already
+# works over X11/XWayland here, unlike Open3D's GLFW (Wayland) backend. The
+# window is interactive: mouse-drag to orbit, and the toolbar zooms/pans/saves.
+
+
+def _box_faces(lo: tuple, hi: tuple) -> list:
+    """The six quad faces of an axis-aligned box from corner ``lo`` to ``hi``."""
+    (x0, y0, z0), (x1, y1, z1) = lo, hi
+    corners = np.array(
+        [
+            [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],  # 0-3 bottom
+            [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],  # 4-7 top
+        ]
+    )
+    idx = [
+        [0, 1, 2, 3], [4, 5, 6, 7],  # bottom, top (z)
+        [0, 1, 5, 4], [3, 2, 6, 7],  # front, back (y)
+        [1, 2, 6, 5], [0, 3, 7, 4],  # right, left (x)
+    ]
+    return [corners[i] for i in idx]
+
+
+def _gripper_mesh(grasp: dict, rotation_offset: np.ndarray | None = None):
+    """A parallel-jaw gripper as world-space quad faces + color.
+
+    Built from four boxes — two fingers, a base plate joining them, and a rear
+    handle — in the gripper's local frame (x = approach / R col-0, y = closing /
+    R col-1), then rotated by R and shifted to ``translation`` (the grasp centre
+    between the fingertips). Color goes red (low score) → green (high score).
+
+    The provider may have post-rotated the output rotation by ``rotation_offset``
+    (a roll/pitch/yaw matrix) to match a robot's tool convention; we undo it with
+    its transpose so the drawn gripper shows GraspNet's true approach onto the cloud.
+    """
+    c = np.asarray(grasp["translation"], dtype=float)
+    R = np.asarray(grasp["rotation"], dtype=float)
+    if rotation_offset is not None:
+        R = R @ np.asarray(rotation_offset, dtype=float).T  # undo offset (R is orthonormal)
+    half = min(max(float(grasp.get("width") or 0.0), 0.0), 0.15) / 2.0
+
+    fw = 0.006      # finger / plate thickness (closing axis)
+    hh = 0.006 / 2  # half gripper height (third axis)
+    depth = 0.045   # finger length along approach
+    tail = 0.04     # rear handle length
+
+    boxes = [
+        ((0.0, -half - fw, -hh), (depth, -half, hh)),    # left finger
+        ((0.0, half, -hh), (depth, half + fw, hh)),      # right finger
+        ((-fw, -half - fw, -hh), (0.0, half + fw, hh)),  # base plate
+        ((-tail - fw, -fw / 2, -hh), (-fw, fw / 2, hh)),  # rear handle
+    ]
+    faces_local = [f for lo, hi in boxes for f in _box_faces(lo, hi)]
+    world = (R @ np.array(faces_local).reshape(-1, 3).T).T + c
+    faces = world.reshape(-1, 4, 3)  # (n_faces, 4 corners, xyz)
+
+    s = min(max(float(grasp.get("score") or 0.0), 0.0), 1.0)
+    return faces, (1.0 - s, s, 0.1)
+
+
+def _draw_grasp_axes(
+    ax, cloud: np.ndarray, grasps: "list[dict]",
+    rotation_offset: np.ndarray | None = None,
+) -> None:
+    """(Re)draw the gray cloud + one solid gripper per grasp on ``ax``."""
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    ax.clear()
+    pts = np.asarray(cloud, dtype=float).reshape(-1, 3)
+    pts = pts[np.isfinite(pts).all(axis=1)]
+    if len(pts) > 4000:  # keep the scatter responsive to orbit
+        pts = pts[np.random.choice(len(pts), 4000, replace=False)]
+    if len(pts):
+        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], s=2, c="0.6", depthshade=False)
+
+    bounds = [pts] if len(pts) else []
+    for g in grasps:
+        faces, color = _gripper_mesh(g, rotation_offset)
+        bounds.append(faces.reshape(-1, 3))
+        ax.add_collection3d(
+            Poly3DCollection(
+                list(faces), facecolor=color, edgecolor=(0, 0, 0, 0.4),
+                linewidths=0.3, alpha=0.9,
+            )
+        )
+
+    scores = [float(g.get("score") or 0.0) for g in grasps]
+    top = f"{max(scores):.3f}" if scores else "n/a"
+    ax.set_title(f"grasps={len(grasps)}  top_score={top}")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+
+    # Equal aspect so grippers aren't distorted: cube limits around the data.
+    if bounds:
+        P = np.vstack(bounds)
+        ctr = (P.max(0) + P.min(0)) / 2.0
+        r = float((P.max(0) - P.min(0)).max()) / 2.0 or 0.05
+        ax.set_xlim(ctr[0] - r, ctr[0] + r)
+        ax.set_ylim(ctr[1] - r, ctr[1] + r)
+        ax.set_zlim(ctr[2] - r, ctr[2] + r)
+        try:
+            ax.set_box_aspect((1, 1, 1))
+        except Exception:
+            pass
+
+
+def _render_grasp_window(
+    tk, root, ui: dict, cloud: np.ndarray, grasps: list,
+    rotation_offset: np.ndarray | None = None,
+) -> None:
+    """Lazily build the embedded matplotlib window, then redraw the scene.
+
+    Runs on the Tk worker thread (called from the viewer's pump), so all Tk and
+    matplotlib widget access stays single-threaded. ``ui`` holds the persistent
+    ``{top, fig, ax, canvas}`` state across calls.
+    """
+    if "canvas" not in ui:
+        from matplotlib.backends.backend_tkagg import (
+            FigureCanvasTkAgg,
+            NavigationToolbar2Tk,
+        )
+        from matplotlib.figure import Figure
+
+        top = tk.Toplevel(root)
+        top.title(WINDOW_GRASP)
+        top.protocol("WM_DELETE_WINDOW", top.withdraw)
+        fig = Figure(figsize=(8, 6))
+        ax = fig.add_subplot(projection="3d")
+        canvas = FigureCanvasTkAgg(fig, master=top)
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        NavigationToolbar2Tk(canvas, top).update()
+        ui.update(top=top, fig=fig, ax=ax, canvas=canvas)
+
+    if not ui["top"].winfo_viewable():
+        ui["top"].deiconify()
+    _draw_grasp_axes(ui["ax"], cloud, grasps, rotation_offset)
+    ui["canvas"].draw_idle()
+
+
+def show_grasp(
+    cloud: np.ndarray, grasps: "list[dict]", rotation_offset: np.ndarray | None = None
+) -> None:
+    """Render the input cloud and generated grasps in an interactive 3D window."""
+    viewer = _get_viewer()
+    if viewer is None:
+        return
+    scores = [float(g.get("score") or 0.0) for g in grasps]
+    top = f"{max(scores):.3f}" if scores else "n/a"
+    print(
+        f"[VISION_DEBUG grasp] grasps={len(grasps)} points={len(cloud)} top_score={top}"
+    )
+    viewer.push_grasp(np.asarray(cloud), list(grasps), rotation_offset)
