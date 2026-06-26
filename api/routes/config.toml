@@ -111,6 +111,12 @@ num_view = 300
 voxel_size = 0.005
 min_points = 200
 rerank_pool_size = 200
+# Debug: on every request, dump the GraspNet inputs to snapshot_dir (relative to
+# the launch cwd) — *_raw.npy (the original cloud, re-POSTable to /grasp), the
+# exact *_fed.npy fed to the model, a *_fed.ply for viewing, and a *.json of
+# params + point counts. Off in prod; the dir accumulates a few files per request.
+snapshot_inputs = true
+snapshot_dir = "test_clouds"
 # Object-cloud filtering.
 outlier_nb_neighbors = 20
 outlier_std_ratio = 2.0
@@ -127,7 +133,7 @@ max_approach_up = 0.2
 # Centre-bias re-rank ("side" preference only): also favour grasps whose centre
 # sits near the object cloud's centroid (grab the middle, not an edge). Blend
 # weight for the added [0,1] centrality bonus; 0 disables. Per-request wins.
-center_weight = 0.5
+center_weight = 0.8
 # Upright-X flip ("side" preference only): after the output rotation offset, roll
 # the gripper 180 about its own Z (the approach) whenever its X axis points below
 # horizontal, so X always points up. Re-rolls the wrist only; approach unchanged.

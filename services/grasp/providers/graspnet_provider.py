@@ -90,6 +90,13 @@ class GraspNetProvider:
         self._min_points = i("min_points", 200)
         self._rerank_pool_size = i("rerank_pool_size", 200)
 
+        # Debug: dump the GraspNet inputs (raw client cloud + the exact fed
+        # sample) to disk on every request, for offline replay/inspection.
+        # Off by default; flip snapshot_inputs on in config.toml when debugging.
+        self._snapshot_inputs = b("snapshot_inputs", False)
+        self._snapshot_dir = c.get("snapshot_dir") or "test_clouds"
+        self._snapshot_count = 0
+
         # Outlier removal + clustering (filtering the supplied object cloud).
         self._outlier_nb_neighbors = i("outlier_nb_neighbors", 20)
         self._outlier_std_ratio = f("outlier_std_ratio", 2.0)
@@ -333,6 +340,23 @@ class GraspNetProvider:
 
             # 2. GraspNet on a fixed-size sample of the object cloud.
             pts = self._sample_points(obj, npoint)
+            if self._snapshot_inputs:
+                self._snapshot(
+                    cloud,
+                    obj,
+                    pts,
+                    {
+                        "voxel_size": voxel,
+                        "num_point": npoint,
+                        "score_threshold": float(score_threshold),
+                        "max_grasps": int(max_grasps),
+                        "antipodal": bool(antipodal),
+                        "outlier_removal": bool(outlier_removal),
+                        "cluster_filter": bool(cluster_filter),
+                        "approach_preference": preference,
+                        "up": (up_unit.tolist() if up_unit is not None else None),
+                    },
+                )
             t0 = time.perf_counter()
             raw = self._run_graspnet(pts)
             infer_ms = (time.perf_counter() - t0) * 1e3
@@ -410,6 +434,61 @@ class GraspNetProvider:
         replace = len(pts) < num_point
         idx = np.random.choice(len(pts), num_point, replace=replace)
         return pts[idx]
+
+    def _snapshot(
+        self, raw: np.ndarray, obj: np.ndarray, fed: np.ndarray, params: dict
+    ) -> None:
+        """Dump the GraspNet inputs to ``snapshot_dir`` for offline debugging.
+
+        Best-effort and self-contained — it logs and swallows any error so a
+        snapshot bug can never masquerade as an inference failure. Per request
+        it writes (stem ``cloud_<date>_<time>_<seq>``):
+
+        - ``*_raw.npy``  the original client cloud, byte-faithful and directly
+                         re-POSTable to ``/grasp`` for replay.
+        - ``*_fed.npy``  the exact ``(num_point, 3)`` array handed to the model
+                         (post filter + random sample). Not reconstructable from
+                         the raw cloud, since the sampling step is random.
+        - ``*_fed.ply``  the fed cloud as a point cloud for quick visual inspection.
+        - ``*.json``     resolved params + point counts (in / after-filter / fed).
+        """
+        try:
+            import json
+
+            self._snapshot_count += 1
+            stem = f"cloud_{time.strftime('%Y%m%d_%H%M%S')}_{self._snapshot_count:03d}"
+            out_dir = os.path.abspath(os.path.expanduser(self._snapshot_dir))
+            os.makedirs(out_dir, exist_ok=True)
+
+            raw_path = os.path.join(out_dir, f"{stem}_raw.npy")
+            fed_path = os.path.join(out_dir, f"{stem}_fed.npy")
+            ply_path = os.path.join(out_dir, f"{stem}_fed.ply")
+            meta_path = os.path.join(out_dir, f"{stem}.json")
+
+            np.save(raw_path, np.asarray(raw, dtype=np.float32))
+            np.save(fed_path, np.asarray(fed, dtype=np.float32))
+
+            import open3d as o3d
+
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(np.asarray(fed, dtype=np.float64))
+            o3d.io.write_point_cloud(ply_path, pcd)
+
+            with open(meta_path, "w") as fh:
+                json.dump(
+                    {
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "raw_points": int(len(raw)),
+                        "filtered_points": int(len(obj)),
+                        "fed_points": int(len(fed)),
+                        "params": params,
+                    },
+                    fh,
+                    indent=2,
+                )
+            print(f"[grasp] snapshot → {fed_path}")
+        except Exception as exc:
+            print(f"[grasp] snapshot failed: {exc}")
 
     def _filter_world(
         self, pts: np.ndarray, voxel: float, outlier_removal: bool, cluster_filter: bool

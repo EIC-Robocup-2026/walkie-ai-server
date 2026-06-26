@@ -24,5 +24,8 @@ wheels/
 # Test fixtures (downloaded face/sample images)
 test_images/
 
+# Grasp debug snapshots (GraspNet input dumps)
+test_clouds/
+
 # Docs (RoboCup rulebook)
 docs/robocup_2026_rulebook.pdf
