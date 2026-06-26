@@ -60,7 +60,8 @@ class YOLOEObjectDetectionProvider(ObjectDetectionProvider):
                   "yoloe-11m-seg-pf.pt"). Auto-downloads. Used when a request
                   supplies no prompts (open-vocabulary).
                 - device: "cuda" or "cpu" (default: auto).
-                - half: FP16 inference (default: True on CUDA).
+                - half: FP16 inference (default: False; see __init__ note --
+                  this ultralytics version's seg mask postprocess is fp32-only).
                 - prompts: Default text concepts (list[str]) applied to the text
                   model when a request omits prompts. If unset, requests with no
                   prompts use the prompt-free model instead.
@@ -84,7 +85,15 @@ class YOLOEObjectDetectionProvider(ObjectDetectionProvider):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"YOLOE provider using device: {device or 'auto'}")
         self._device = device
-        self._half = bool(config.get("half", device == "cuda"))
+        # FP16 is OFF by default. Every YOLOE checkpoint we serve is a
+        # segmentation (-seg) model, so Ultralytics always runs its mask
+        # postprocess (ops.process_mask) -- even when return_mask is False --
+        # and this version matmuls the fp16 mask coefficients against an fp32
+        # `protos.float()`, raising "mat1 and mat2 ... Half != float" on every
+        # predict. Re-enable with `half = true` in config only on an
+        # ultralytics build that fixes process_mask. Half buys little here (the
+        # model is small) and costs only a touch of speed/memory in fp32.
+        self._half = bool(config.get("half", False))
 
         prompts = config.get("prompts")
         self._default_prompts: list[str] = list(prompts) if prompts else []

@@ -59,8 +59,8 @@ model = ""
 
 [object_detection.yoloe]
 # Both auto-download by default.
-model = ""
-pf_model = ""
+model = "yoloe-26l-seg.pt"
+pf_model = "yoloe-26l-seg-pf.pt"
 
 # ---------------------------------------------------------------------------
 # Pose estimation  (/pose-estimation/estimate)
@@ -134,6 +134,14 @@ max_approach_up = 0.2
 # sits near the object cloud's centroid (grab the middle, not an edge). Blend
 # weight for the added [0,1] centrality bonus; 0 disables. Per-request wins.
 center_weight = 0.8
+# Closing-horizontal bias + filter ("side" preference only): a side approach
+# leaves a free roll about it, so the closing/gripper-width axis (col-1) can end
+# up vertical — jaws stacked top-to-bottom, gripping "through" an upright object
+# taller than the gripper width. closing_weight blends a [0,1] bonus rewarding a
+# horizontal closing (0 disables); max_closing_up hard-drops grasps whose closing
+# tilts past it (max allowed |closing·up|), 1 disabling the drop. Per-request wins.
+closing_weight = 1.0
+max_closing_up = 0.4
 # Upright-X flip ("side" preference only): after the output rotation offset, roll
 # the gripper 180 about its own Z (the approach) whenever its X axis points below
 # horizontal, so X always points up. Re-rolls the wrist only; approach unchanged.
@@ -149,7 +157,7 @@ normal_max_nn = 30
 antipodal_r_tol_m = 0.01
 antipodal_min_pts = 4
 width_clearance_m = 0.01
-max_gripper_width_m = 0.10
+max_gripper_width_m = 0.07
 # Output rotation offset, applied about the gripper's own X/Y/Z axes (URDF/ROS
 # RPY order Rz·Ry·Rx) to match the robot's tool convention. Pitch re-points
 # "forward": +90 puts +Z onto the approach (toward the object), -90 onto -Z.

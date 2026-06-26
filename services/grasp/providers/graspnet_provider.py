@@ -130,6 +130,19 @@ class GraspNetProvider:
         # disables it. See _center_scores / infer().
         self._center_weight = f("center_weight", 0.5)
 
+        # Closing-horizontal bias + filter, "side" preference only. A side grasp
+        # constrains only the *approach* (col-0) to be horizontal, leaving a free
+        # roll about it: the closing/spread axis (col-1, the gripper-width
+        # direction) can end up vertical, stacking the jaws top-to-bottom so they
+        # grip "through" an upright object taller than the gripper width — yet
+        # GraspNet can still score that high. closing_weight blends a [0,1] bonus
+        # rewarding a horizontal closing (pinch across the object's width);
+        # max_closing_up hard-drops grasps whose closing tilts too far from
+        # horizontal (|closing·up| above it), 1.0 disabling the drop. See
+        # _closing_scores / _closing_up_mask / infer().
+        self._closing_weight = f("closing_weight", 1.0)
+        self._max_closing_up = f("max_closing_up", 0.4)
+
         # Upright-X flip, "side" preference only. After the output rotation offset
         # is applied, roll the gripper 180 about its own Z (the approach for a
         # side grasp) whenever its X axis points into the lower ("-up")
@@ -253,6 +266,8 @@ class GraspNetProvider:
         approach_weight: float | None = None,
         max_approach_up: float | None = None,
         center_weight: float | None = None,
+        closing_weight: float | None = None,
+        max_closing_up: float | None = None,
         upright_x: bool | None = None,
         upright_x_inverse: bool | None = None,
         **_ignored: Any,
@@ -278,6 +293,15 @@ class GraspNetProvider:
         centre sits near the object cloud's centroid — preferring a grip on the
         middle of the object over one near an edge. It is scored on the refined
         centre on the antipodal path.
+
+        Also for ``side`` only, a **closing-horizontal** bias keeps the
+        gripper-width (closing/col-1) axis horizontal: a side approach still has
+        a free roll about it, so the jaws can stack vertically and grip "through"
+        an upright object taller than the gripper width. ``closing_weight``
+        (default config value) blends a ``[0, 1]`` bonus rewarding a horizontal
+        closing, and grasps whose closing tilts past ``max_closing_up`` (max
+        allowed ``|closing·up|``; default config value, 1.0 disables) are
+        **hard-dropped** before re-ranking.
 
         Also for ``side`` only, ``upright_x`` (default config value, default
         True) keeps the gripper's X axis in the **up** hemisphere: after the
@@ -318,6 +342,12 @@ class GraspNetProvider:
             # Centre bias is "side"-only; per-request override wins over config.
             cen_w = self._center_weight if center_weight is None else float(center_weight)
             cen_w = cen_w if preference == "side" else 0.0
+            # Closing-horizontal bias + filter are "side"-only; per-request wins.
+            clo_w = self._closing_weight if closing_weight is None else float(closing_weight)
+            clo_w = clo_w if preference == "side" else 0.0
+            max_clo = (
+                self._max_closing_up if max_closing_up is None else float(max_closing_up)
+            )
             # Upright-X flip is "side"-only; per-request overrides win over config.
             # x_target is the direction the gripper's X axis should point toward
             # ("up" normally, "-up"/down when inverted), passed to _emit_rotation;
@@ -381,24 +411,41 @@ class GraspNetProvider:
                         f"(preference={preference}, max_approach_up={max_up})"
                     )
                     return []
+                # "side"-only: also drop "vertical-closing" grasps whose closing
+                # (col-1) tilts too far from horizontal — they stack the jaws
+                # top-to-bottom and grip "through" an upright object.
+                if preference == "side" and max_clo < 1.0:
+                    closings = np.asarray(gg.rotation_matrices)[:, :, 1]
+                    keep = self._closing_up_mask(closings, up_unit, max_clo)
+                    gg = gg[keep]
+                    if len(gg) == 0:
+                        print(
+                            f"[grasp] no grasp left after dropping vertical-closing "
+                            f"grasps (preference=side, max_closing_up={max_clo})"
+                        )
+                        return []
 
             # 4. Optional antipodal validation; else take the top quality-sorted poses.
             #    Both paths fold in the approach-bias bonus when pref_active, plus
             #    the "side"-only centrality bonus when cen_w > 0.
             if antipodal:
                 grasps = self._antipodal_select(
-                    gg, obj, n_out, up_unit, preference, weight, cen_w, x_target
+                    gg, obj, n_out, up_unit, preference, weight, cen_w, clo_w, x_target
                 )
             else:
                 if pref_active:
-                    approaches = np.asarray(gg.rotation_matrices)[:, :, 0]
+                    rmats = np.asarray(gg.rotation_matrices)
                     blended = gg.scores + weight * self._approach_scores(
-                        approaches, up_unit, preference
+                        rmats[:, :, 0], up_unit, preference
                     )
                     if cen_w > 0:
                         centroid, scale = self._cloud_center(obj)
                         blended = blended + cen_w * self._center_scores(
                             np.asarray(gg.translations), centroid, scale
+                        )
+                    if clo_w > 0:
+                        blended = blended + clo_w * self._closing_scores(
+                            rmats[:, :, 1], up_unit
                         )
                     gg = gg[np.argsort(-blended)]
                 grasps = self._as_dicts(gg[:n_out], x_target)
@@ -566,6 +613,42 @@ class GraspNetProvider:
         return np.zeros(len(approaches))
 
     @staticmethod
+    def _closing_scores(closings: np.ndarray, up_unit: np.ndarray) -> np.ndarray:
+        """Closing-horizontal score in ``[0, 1]`` per grasp ("side" preference).
+
+        ``closings`` is ``(N, 3)`` of closing/spread vectors (rotation col-1);
+        ``up_unit`` is the unit "up" in the cloud frame. Rewards a horizontal
+        closing direction — the jaws pinch across the object's width rather than
+        stacking top-to-bottom: 1 when closing ⟂ up, 0 when closing ∥ up. Closing
+        is sign-symmetric (±col-1 are the same grip), so the absolute alignment
+        is used.
+        """
+        c = closings / np.clip(
+            np.linalg.norm(closings, axis=1, keepdims=True), 1e-9, None
+        )
+        d = c @ np.asarray(up_unit, dtype=np.float64)
+        return 1.0 - np.abs(d)
+
+    @staticmethod
+    def _closing_up_mask(
+        closings: np.ndarray, up_unit: np.ndarray, max_up_cos: float
+    ) -> np.ndarray:
+        """Boolean keep-mask dropping "vertical-closing" side grasps.
+
+        ``closings`` is ``(N, 3)`` of closing vectors (rotation col-1); ``up_unit``
+        is the unit "up" in the cloud frame. Keep where ``|closing·up| <=
+        max_up_cos``. A horizontal closing (jaws pinch across an upright object)
+        scores 0, a vertical closing (jaws stacked top-to-bottom, gripping
+        "through" a tall object) scores 1, so a small ``max_up_cos`` keeps only
+        near-horizontal closings and ``1.0`` disables the filter. Closing is
+        sign-symmetric, so the absolute alignment is used.
+        """
+        c = closings / np.clip(
+            np.linalg.norm(closings, axis=1, keepdims=True), 1e-9, None
+        )
+        return np.abs(c @ np.asarray(up_unit, dtype=np.float64)) <= float(max_up_cos)
+
+    @staticmethod
     def _cloud_center(obj_pts: np.ndarray) -> tuple[np.ndarray, float]:
         """Centroid + characteristic radius (max point distance) of a cloud.
 
@@ -679,6 +762,7 @@ class GraspNetProvider:
         preference: str = "none",
         weight: float = 0.0,
         center_weight: float = 0.0,
+        closing_weight: float = 0.0,
         x_target: np.ndarray | None = None,
     ) -> list[dict]:
         """Keep grasps that lie on the object surface; refine width/centre + score."""
@@ -689,6 +773,8 @@ class GraspNetProvider:
         # Centre bias is "side"-only; precompute the cloud centroid + scale once.
         side_center = preference == "side" and center_weight > 0
         centroid, scale = self._cloud_center(obj_pts) if side_center else (None, 0.0)
+        # Closing-horizontal bias is "side"-only.
+        side_closing = preference == "side" and closing_weight > 0
 
         cand: list[dict] = []
         for k in range(len(gg)):
@@ -712,18 +798,27 @@ class GraspNetProvider:
                 if side_center
                 else 0.0
             )
+            # Closing-horizontal bonus on the raw closing (col-1); 0 unless side.
+            clo = (
+                float(self._closing_scores(rot[:, 1][None, :], up_unit)[0])
+                if side_closing
+                else 0.0
+            )
             cand.append(
-                {"rot": rot, "center": c_ref, "width": width,
-                 "gn": float(gg.scores[k]), "anti": anti, "pref": pref, "cen": cen}
+                {"rot": rot, "center": c_ref, "width": width, "gn": float(gg.scores[k]),
+                 "anti": anti, "pref": pref, "cen": cen, "clo": clo}
             )
         if not cand:
             return []
 
         # Rank by quality + antipodal (the ROS /grasp/pos default blend), plus the
         # weighted approach-bias bonus when a preference is active and the
-        # "side"-only centrality bonus.
+        # "side"-only centrality + closing-horizontal bonuses.
         cand.sort(
-            key=lambda d: d["gn"] + d["anti"] + weight * d["pref"] + center_weight * d["cen"],
+            key=lambda d: (
+                d["gn"] + d["anti"] + weight * d["pref"]
+                + center_weight * d["cen"] + closing_weight * d["clo"]
+            ),
             reverse=True,
         )
         out = []

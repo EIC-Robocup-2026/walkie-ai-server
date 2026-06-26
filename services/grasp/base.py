@@ -43,8 +43,9 @@ class GraspProvider(ABC):
                 ``voxel_size``, ``num_point``, ``outlier_removal``,
                 ``cluster_filter``, ``antipodal`` + its params, and the
                 approach-bias re-rank ``approach_preference`` /``up`` /
-                ``approach_weight`` /``center_weight`` — the last a
-                ``"side"``-only nudge toward grasps near the cloud centroid).
+                ``approach_weight`` /``center_weight`` /``closing_weight`` — the
+                last two ``"side"``-only nudges toward grasps near the cloud
+                centroid and with a horizontal gripper-width axis).
                 Anything unset falls back to the provider's configured default.
 
         Returns:
