@@ -98,3 +98,28 @@ def get_grasp() -> Grasp:
         _grasp = Grasp(provider=provider, **compact(cfg.get(provider, {})))
         _grasp.load_model()
     return _grasp
+
+
+def preload_grasp(warmup_runs: int = 3) -> None:
+    """Eagerly load GraspNet and warm the forward at startup.
+
+    Without this, GraspNet lazy-loads on the first ``/grasp`` call, so that first
+    request pays the one-time model load + first-forward autotune (~0.9 s on top
+    of the normal ~40 ms). Pre-loading moves that cost to boot. ``load_model()``
+    already runs one warmup forward; the extra ``warmup_runs`` settle
+    cuDNN/cuBLAS autotune for the real ``(num_point, 3)`` shape. Best-effort —
+    warmup failures never block startup. Enabled via ``[grasp].preload`` /
+    ``GRASP_PRELOAD`` (see ``api.create_app``).
+    """
+    import numpy as np
+
+    g = get_grasp()
+    prov = g.provider
+    npoint = int(getattr(prov, "_num_point", 10000))
+    dummy = np.random.randn(npoint, 3).astype(np.float32)
+    for _ in range(max(0, warmup_runs)):
+        try:
+            prov._run_graspnet(dummy)
+        except Exception as exc:  # noqa: BLE001 — never block startup on warmup
+            print(f"[models] grasp warmup forward failed (non-fatal): {exc}")
+            break

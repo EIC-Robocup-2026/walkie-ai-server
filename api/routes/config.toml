@@ -97,6 +97,11 @@ provider = "osnet"
 # ---------------------------------------------------------------------------
 [grasp]
 provider = "graspnet"
+# Load GraspNet + warm the forward at startup so the first /grasp request runs at
+# steady state (~40 ms) instead of paying the one-time lazy load (~0.9 s) on the
+# first call. Costs the grasp VRAM upfront; set false to keep lazy-load-on-first
+# -call. Overridable per-process with the GRASP_PRELOAD env var.
+preload = true
 
 [grasp.graspnet]
 # graspnet-baseline checkout (model code + pointnet2/knn CUDA ops) and the

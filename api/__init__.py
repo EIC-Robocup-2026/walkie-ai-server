@@ -37,4 +37,21 @@ def create_app() -> Flask:
             ],
         }
 
+    # Pre-load GraspNet at startup so the first /grasp request runs at steady
+    # state instead of paying the ~0.9 s lazy load + forward autotune on the
+    # user's first call. Opt-in: GRASP_PRELOAD env wins, else [grasp].preload
+    # (default off — keeps the lazy-load-on-first-call behaviour that saves VRAM
+    # when manipulation isn't used).
+    import os
+
+    _env = os.getenv("GRASP_PRELOAD")
+    if _env is not None:
+        _preload = _env.strip().lower() in ("1", "true", "yes", "on")
+    else:
+        _preload = bool(section("grasp").get("preload", False))
+    if _preload:
+        from api.models import preload_grasp
+
+        preload_grasp()
+
     return app
