@@ -80,6 +80,35 @@ SAM3_MODEL=/path/to/sam3.pt ./scripts/run_sam3.sh
 ./scripts/serve_llm.sh ollama   # or Ollama
 ```
 
+### 📴 Running offline
+
+`./scripts/run_app.sh` runs **without internet by default**. It sets
+`HF_HUB_OFFLINE` / `TRANSFORMERS_OFFLINE` (so `transformers` / `huggingface_hub`
+serve clip, florence2, osnet, and faster-whisper from the local cache instead of
+revalidating online) and `YOLO_OFFLINE=true` (so Ultralytics skips its DNS probe
+and telemetry). InsightFace needs no flag — it loads `buffalo_l` from its local
+model dir. The default stack therefore boots and serves with the network cut, as
+long as the weights are already present:
+
+- **HF cache** (`~/.cache/huggingface/hub`): `clip-vit-base-patch16`,
+  `Florence-2-base`, `Systran/faster-whisper-small`, `kaiyangzhou/osnet`.
+- **InsightFace** (`~/.insightface/models/buffalo_l/`).
+- **Repo root**: `yoloe-26l-seg.pt`, `yoloe-26l-seg-pf.pt`, `yolo26s-pose.pt`,
+  and the YOLOE text encoder `mobileclip_blt.ts`; plus `voices/…onnx` (Piper)
+  and the GraspNet checkout/checkpoint under `~/graspnet-baseline`.
+
+To **fetch or update** a model (or on a fresh box with a cold cache), run online
+once — this clears the offline switches so libraries may download again:
+
+```bash
+WALKIE_OFFLINE=0 ./scripts/run_app.sh
+```
+
+> ⚠️ The cloud providers — `google` (STT), `elevenlabs` (TTS), `google` (image
+> caption / Gemini) — make a remote API call per request and **cannot run
+> offline**. They aren't the defaults; selecting one in
+> `api/routes/config.toml` while offline will fail.
+
 
 ## 📡 API Reference
 

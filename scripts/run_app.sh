@@ -19,4 +19,20 @@ if [ -n "$NV_LIBS" ]; then
     export LD_LIBRARY_PATH="${NV_LIBS}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
 
+# Run without internet by default. Every default provider's weights are already
+# on disk (HF cache, ~/.insightface/buffalo_l, repo-root *.pt / *.ts, graspnet
+# checkpoint), so the only offline risk is libraries phoning home to revalidate
+# the cache. These switches keep them local:
+#   HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE -> clip, florence2, osnet, faster-whisper
+#   YOLO_OFFLINE                          -> ultralytics skips its DNS probe + telemetry
+# (insightface needs none — it checks its local model dir first.) The cloud
+# providers (google STT, elevenlabs TTS, google_caption) can't run offline and
+# aren't defaults. Set WALKIE_OFFLINE=0 to allow downloads (e.g. add a model).
+if [ "${WALKIE_OFFLINE:-1}" != "0" ]; then
+    export HF_HUB_OFFLINE=1
+    export TRANSFORMERS_OFFLINE=1
+    export HF_HUB_DISABLE_TELEMETRY=1
+    export YOLO_OFFLINE=true
+fi
+
 exec uv run python app.py "$@"
