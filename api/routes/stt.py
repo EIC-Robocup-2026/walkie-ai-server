@@ -9,13 +9,13 @@ from services.stt import STT
 bp = Blueprint("stt", __name__, url_prefix="/stt")
 
 # Provider + tuning come from [stt] in config.toml (default "whisper" — non-breaking).
-# Set provider = "nemo" to use Chalk's local NemotronASR; [stt.nemo] tunes that provider.
+# Set provider = "nemo" to use Chalk's local NemotronASR; [stt.<provider>] tunes the
+# chosen provider (e.g. [stt.whisper] device/compute_type, [stt.nemo] model_path/device).
 _cfg = section("stt")
 _provider = _cfg.get("provider", "whisper")
-_config = {}
-if _provider == "nemo":
-    _nemo = _cfg.get("nemo", {})
-    _config = compact({"model_path": _nemo.get("model_path"), "device": _nemo.get("device")})
+# Pass the matching [stt.<provider>] sub-table straight through; compact() drops
+# empty-string values so a provider's own defaults still apply when left unset.
+_config = compact(_cfg.get(_provider, {}))
 
 _stt = STT(provider=_provider, **_config)
 

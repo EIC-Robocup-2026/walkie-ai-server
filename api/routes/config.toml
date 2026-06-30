@@ -21,6 +21,13 @@ debug = true
 # "whisper", "google", or "nemo" (Chalk's local NemotronASR).
 provider = "whisper"
 
+[stt.whisper]
+# device "cuda" or "cpu" ("" / unset = auto: cuda if available, else cpu).
+# Forced to cpu. compute_type int8 is the CPU-supported quantization (float16
+# is CUDA-only and would otherwise auto-downgrade to int8).
+device = "cpu"
+compute_type = "int8"
+
 [stt.nemo]
 # Only used when provider = "nemo". Point model_path at the downloaded
 # nemotron_asr.pt; device is "cuda" / "cpu" ("" = auto-detect).
