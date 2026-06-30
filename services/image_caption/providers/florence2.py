@@ -5,6 +5,7 @@ config key ("base" or "large"), or override the model id outright via ``model``.
 """
 
 import io
+import warnings
 from typing import Any, Union
 
 import torch
@@ -15,12 +16,30 @@ from ..base import ImageCaptionProvider
 
 
 class Florence2ImageCaptionProvider(ImageCaptionProvider):
-    """Florence-2 image captioning provider using HuggingFace Transformers."""
+    """Florence-2 image captioning provider using HuggingFace Transformers.
+
+    Florence-2 is **not** a free-text/instruction model: it only acts on its
+    fixed task tokens. The text passed to ``generate`` is the task selector, not
+    an instruction — an arbitrary natural-language prompt (e.g. "Describe the
+    clothing") is not understood and leaks straight into decoding, yielding a
+    generic caption at best and degenerate, looping output at worst. So this
+    provider accepts only the caption task tokens in ``CAPTION_TASK_TOKENS`` and
+    maps anything else (free text or an unsupported token) to ``default_prompt``
+    — see :meth:`_normalize_task_prompt`.
+    """
 
     MODEL_IDS: dict[str, str] = {
         "base": "florence-community/Florence-2-base",
         "large": "florence-community/Florence-2-large",
     }
+    # The caption-producing task tokens. Each yields a plain caption string from
+    # ``post_process_generation`` (keyed by the token). Region/grounding/OCR
+    # tasks are excluded: they return structured boxes/polygons, not a caption.
+    CAPTION_TASK_TOKENS: frozenset[str] = frozenset({
+        "<CAPTION>",            # short, one-line caption
+        "<DETAILED_CAPTION>",   # paragraph caption
+        "<MORE_DETAILED_CAPTION>",  # most detailed; best for attire/object detail
+    })
     DEFAULT_VARIANT = "large"
     DEFAULT_PROMPT = "<DETAILED_CAPTION>"
     DEFAULT_MAX_NEW_TOKENS = 256
@@ -55,6 +74,14 @@ class Florence2ImageCaptionProvider(ImageCaptionProvider):
             device_str if torch.cuda.is_available() else "cpu"
         )
         self.default_prompt = config.get("default_prompt", self.DEFAULT_PROMPT)
+        if self.default_prompt not in self.CAPTION_TASK_TOKENS:
+            # default_prompt is the fallback every unsupported prompt maps to, so
+            # it must itself be a valid task token or the fallback would emit the
+            # very garbage this provider exists to avoid.
+            raise ValueError(
+                f"Florence-2 default_prompt must be one of "
+                f"{sorted(self.CAPTION_TASK_TOKENS)}, got {self.default_prompt!r}."
+            )
         self.max_new_tokens = config.get("max_new_tokens", self.DEFAULT_MAX_NEW_TOKENS)
         self.num_beams = config.get("num_beams", self.DEFAULT_NUM_BEAMS)
         self.batch_size = config.get("batch_size", self.DEFAULT_BATCH_SIZE)
@@ -87,6 +114,31 @@ class Florence2ImageCaptionProvider(ImageCaptionProvider):
         if isinstance(image, Image.Image):
             return image.convert("RGB")
         return Image.open(io.BytesIO(image)).convert("RGB")
+
+    def _normalize_task_prompt(self, prompt: str | None) -> str:
+        """Resolve a caller prompt to a valid Florence-2 caption task token.
+
+        ``None`` → ``default_prompt``. A recognized caption task token (after
+        stripping surrounding whitespace) is passed through. Anything else —
+        free text or an unsupported token — cannot be honored by Florence-2, so
+        it falls back to ``default_prompt`` (and warns once) rather than leaking
+        into decoding and producing a generic or degenerate caption.
+        """
+        if prompt is None:
+            return self.default_prompt
+        candidate = prompt.strip()
+        if candidate in self.CAPTION_TASK_TOKENS:
+            return candidate
+        warnings.warn(
+            "Florence-2 only honors its caption task tokens "
+            f"({', '.join(sorted(self.CAPTION_TASK_TOKENS))}); the supplied "
+            f"caption prompt is not one of them, so {self.default_prompt} was "
+            "used instead. Pass a task token to choose the caption's detail "
+            "level. (Florence-2 cannot answer free-text prompts; use the "
+            "paligemma or google provider for that.)",
+            stacklevel=2,
+        )
+        return self.default_prompt
 
     def _run_inference(self, pil_image: Image.Image, task_prompt: str) -> str:
         """Run Florence-2 inference and return the parsed caption string.
@@ -184,14 +236,17 @@ class Florence2ImageCaptionProvider(ImageCaptionProvider):
 
         Args:
             image: The image to caption, either as bytes or PIL Image.
-            prompt: Optional Florence-2 task prompt (e.g. "<DETAILED_CAPTION>").
-                    If None, uses default_prompt.
+            prompt: Optional Florence-2 caption task token (one of
+                    ``CAPTION_TASK_TOKENS``, e.g. "<DETAILED_CAPTION>"). ``None``
+                    or any non-token value falls back to ``default_prompt`` —
+                    Florence-2 does not understand free-text prompts (see
+                    :meth:`_normalize_task_prompt`).
 
         Returns:
             The generated caption/description as a string.
         """
         self._ensure_loaded()
-        task_prompt = prompt if prompt is not None else self.default_prompt
+        task_prompt = self._normalize_task_prompt(prompt)
         pil_image = self._to_pil(image)
         return self._run_inference(pil_image, task_prompt)
 
@@ -208,8 +263,10 @@ class Florence2ImageCaptionProvider(ImageCaptionProvider):
 
         Args:
             images: List of images to caption (bytes or PIL Image).
-            prompts: Optional list of task prompts; if None, uses default_prompt.
-                     If provided, must be the same length as images.
+            prompts: Optional list of caption task tokens; if None, uses
+                     default_prompt. If provided, must be the same length as
+                     images. Each entry is normalized like ``caption``'s prompt:
+                     non-token values fall back to ``default_prompt``.
 
         Returns:
             List of caption strings, one per image, in the same order as images.
@@ -223,6 +280,8 @@ class Florence2ImageCaptionProvider(ImageCaptionProvider):
             prompts = [self.default_prompt] * len(images)
         elif len(prompts) != len(images):
             raise ValueError("Number of prompts must match number of images")
+        else:
+            prompts = [self._normalize_task_prompt(p) for p in prompts]
 
         pil_images = [self._to_pil(img) for img in images]
 
