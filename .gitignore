@@ -17,6 +17,7 @@ wheels/
 *.gguf
 *.ot
 *.ts
+*.npz
 
 # Env
 .env

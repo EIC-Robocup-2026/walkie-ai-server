@@ -225,9 +225,23 @@ def test_grasp_approach_preference_biases_direction(base_url, sample_can_npy):
     gravity = -up
 
     def aligns(preference):
+        # Isolate the *approach* preference from the confounders that otherwise
+        # muddy the raw col-0 direction on this thin upright can:
+        #   - max_approach_up=1.0 disables the bottom-up hard filter. At the
+        #     production default (0.2) it strips the upward tail of "side"'s
+        #     (near-horizontal) approaches, biasing them ~20° downward and
+        #     collapsing the side/top separation this test measures.
+        #   - center_weight/closing_weight=0 (+ max_closing_up=1.0) drop the
+        #     "side"-only centre/closing biases, which re-rank on translation and
+        #     col-1 without regard to approach horizontality.
+        # A larger approach_weight makes the preference dominate GraspNet's own
+        # score spread. Production keeps all these on by design; here we want a
+        # clean read of "does approach_preference bias the approach direction".
         data = _grasp(base_url, sample_can_npy,
                       {"max_grasps": 12, "approach_preference": preference,
-                       "up": up.tolist(), "approach_weight": 2.0})
+                       "up": up.tolist(), "approach_weight": 4.0,
+                       "max_approach_up": 1.0, "center_weight": 0.0,
+                       "closing_weight": 0.0, "max_closing_up": 1.0})
         out = []
         for g in data["grasps"]:
             r = np.asarray(g["rotation"], float)
@@ -237,7 +251,7 @@ def test_grasp_approach_preference_biases_direction(base_url, sample_can_npy):
         assert out, "expected grasps"
         return np.array(out)
 
-    reps = 3
+    reps = 4
     top_down = np.mean([aligns("top").mean() for _ in range(reps)])
     side_down = np.mean([aligns("side").mean() for _ in range(reps)])
     side_horiz = np.mean([np.abs(aligns("side")).mean() for _ in range(reps)])
