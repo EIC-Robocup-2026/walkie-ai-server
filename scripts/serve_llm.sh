@@ -4,8 +4,8 @@
 
 set -euo pipefail
 
-VENV=${VENV:-/home/walkie/walkie-projects/triattention/.venv023} # why not
-WEIGHTS=/home/walkie/walkie-projects/triattention/weights
+VENV=${VENV:-/home/walkie/robocup2026/triattention/.venv023}
+WEIGHTS=/home/walkie/robocup2026/triattention/weights
 MODEL=${MODEL:-$WEIGHTS/gemma-4-E4B-it-qat-w4a16-ct}
 DRAFT=${DRAFT:-$WEIGHTS/gemma-4-E4B-it-assistant}
 
@@ -13,11 +13,11 @@ PORT=${PORT:-8000}
 SERVED_NAME=${SERVED_NAME:-qwen3.5-9b}
 MTP=${MTP:-on}
 MTP_TOKENS=${MTP_TOKENS:-3}
-EAGER=${EAGER:-off} # cuda graph
+EAGER=${EAGER:-off}
 KV_DTYPE=${KV_DTYPE:-auto}
-MAXLEN=${MAXLEN:-32768}
+MAXLEN=${MAXLEN:-8192}
 GPU_UTIL=${GPU_UTIL:-0.60}
-MAX_NUM_SEQS=${MAX_NUM_SEQS:-256}
+MAX_NUM_SEQS=${MAX_NUM_SEQS:-16}
 TOOLS=${TOOLS:-on}
 STRUCTURED=${STRUCTURED:-on}        # enforce JSON/grammar even inside reasoning (needed when --reasoning-parser is on)
 
@@ -103,4 +103,5 @@ exec "$VENV/bin/python" -m vllm.entrypoints.openai.api_server \
     --max-num-seqs "$MAX_NUM_SEQS" \
     --enable-prefix-caching \
     --trust-remote-code \
+    --max-num-batched-tokens 1024 \
     "${EXTRA_ARGS[@]}"

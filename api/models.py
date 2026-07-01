@@ -4,8 +4,11 @@ Owns every heavy vision model behind one accessor each so the unified
 ``/image`` blueprint reuses the same loaded instance instead of each route
 holding its own. Detection / pose / image-embed load **eagerly** at import
 (always on the critical path); caption / face / appearance load **lazily** on
-first use (heavier or optional). Provider selection mirrors the per-task
-``config.toml`` tables that the old per-route modules read.
+first use (heavier / optional, so a broken one never blocks import). When
+``WALKIE_PRELOAD`` is on (the default) ``api.create_app`` warms those lazy
+singletons at startup via :func:`preload_lazy_singletons`, so the first request
+to every endpoint runs hot instead of paying the model load. Provider selection
+mirrors the per-task ``config.toml`` tables that the old per-route modules read.
 """
 
 from __future__ import annotations
@@ -98,6 +101,36 @@ def get_grasp() -> Grasp:
         _grasp = Grasp(provider=provider, **compact(cfg.get(provider, {})))
         _grasp.load_model()
     return _grasp
+
+
+def preload_lazy_singletons() -> list[tuple[str, bool]]:
+    """Eagerly warm the lazy vision singletons (caption / face / appearance).
+
+    Without this each loads on the first request that touches it, so that first
+    call pays the one-time model load. Warming them at boot moves that cost to
+    startup and keeps first requests hot.
+
+    Best-effort **per model**: these are the "heavier / optional" singletons, so
+    one failing to load (e.g. a missing pack) must not take down the endpoints
+    that already loaded eagerly at import. Each failure prints a loud line;
+    ``api.create_app`` prints a one-line summary of what warmed vs failed.
+
+    Returns:
+        ``(name, ok)`` for each singleton, in warm order.
+    """
+    results: list[tuple[str, bool]] = []
+    for name, getter in (
+        ("caption", get_caption),
+        ("face", get_face),
+        ("appearance", get_appearance),
+    ):
+        try:
+            getter()
+            results.append((name, True))
+        except Exception as exc:  # noqa: BLE001 — one optional model must not block boot
+            print(f"[preload] {name} warm failed (non-fatal): {exc}")
+            results.append((name, False))
+    return results
 
 
 def preload_grasp(warmup_runs: int = 3) -> None:

@@ -41,4 +41,4 @@ if __name__ == "__main__":
     # ~25ms. GPU inference serializes on one CUDA stream anyway, so a thread
     # pool buys throughput only with reused (warmed) threads — use waitress for
     # that, not Werkzeug's new-thread-per-request dev server.
-    app.run(host="0.0.0.0", port=5000, debug=True, threaded=False)
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False, threaded=False)

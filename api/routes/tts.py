@@ -40,6 +40,21 @@ def _get_tts() -> tuple[TTS, str]:
     return _tts, _audio_content_type
 
 
+def preload() -> bool:
+    """Warm the TTS provider (voice model) so the first /tts request runs hot.
+
+    Called at startup by ``api.create_app`` when ``WALKIE_PRELOAD`` is on.
+    Best-effort: a TTS load failure must not block boot — it prints a loud line
+    and returns False so the caller's summary reflects it.
+    """
+    try:
+        _get_tts()
+        return True
+    except Exception as exc:  # noqa: BLE001 — never block boot on TTS
+        print(f"[preload] tts warm failed (non-fatal): {exc}")
+        return False
+
+
 @bp.get("/providers")
 def list_providers():
     return success(TTS.available_providers())

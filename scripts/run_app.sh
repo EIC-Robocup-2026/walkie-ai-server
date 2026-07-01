@@ -35,4 +35,11 @@ if [ "${WALKIE_OFFLINE:-1}" != "0" ]; then
     export YOLO_OFFLINE=true
 fi
 
+# Preload every model at boot (master gate read by api.create_app) so the first
+# request to each endpoint runs hot. Detection/pose/embed/STT already load
+# eagerly at import; this also warms caption, face, appearance, TTS and (per its
+# own [grasp].preload sub-flag) GraspNet. Export WALKIE_PRELOAD=0 before running
+# this script to keep the heavy/optional models lazy on a low-VRAM box.
+export WALKIE_PRELOAD="${WALKIE_PRELOAD:-1}"
+
 exec uv run python app.py "$@"

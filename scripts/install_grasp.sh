@@ -34,7 +34,7 @@ SRV="$ROOT/.venv/bin/python"
 SP="$(echo "$ROOT"/.venv/lib/python*/site-packages)"
 
 # Where the prebuilt extensions live (the perception venv that built them).
-PERC_SP="${WALKIE_PERCEPTION_SP:-$HOME/test_ros_ws/src/perception/.venv/lib/python3.12/site-packages}"
+PERC_SP="${WALKIE_PERCEPTION_SP:-$HOME/perception-venv/lib/python3.12/site-packages}"
 
 echo "== server venv: $SRV =="
 
