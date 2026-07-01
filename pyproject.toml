@@ -6,6 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "bitsandbytes>=0.49.2",
+    # Custom RoboCup@Home object detector used by the "detecty" object-detection
+    # provider: Grounding DINO localize + DINOv3/colour/OCR ensemble classify over
+    # the 30 official Incheon2026 objects. Editable path dep (vendored under
+    # third_party/detecty, see [tool.uv.sources]); the [ocr] extra adds easyocr
+    # for the brand-text twins (coke/red_bull, pepsi/soju). torch/torchvision/timm/
+    # transformers/opencv/pyyaml it needs are already provided above.
+    "detecty[ocr]",
     # Local NeMo-based ASR (FastConformer -> RNNT) used by the "nemo" STT provider.
     # Editable path dep on Chalk's separate repo (sibling dir). NOTE: do NOT run that
     # repo's setup.sh — it installs a CUDA-nightly torch that would clobber ours.
@@ -56,3 +63,4 @@ override-dependencies = ["onnxruntime; sys_platform == 'never'"]
 
 [tool.uv.sources]
 eic-speech-nemo = { git = "https://github.com/chalkp/eic-speech-nemo.git" }
+detecty = { path = "third_party/detecty", editable = true }

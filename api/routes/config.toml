@@ -53,9 +53,10 @@ voice_id = "fDeOZu1sNd7qahm2fV4k"
 # Object detection  (/object-detection/detect)
 # ---------------------------------------------------------------------------
 [object_detection]
-# "yolo" (fixed 365-class, no masks), "sam3" (open-vocab concept seg), or
-# "yoloe" (open-vocab detect + seg, default).
-provider = "yoloe"
+# "yolo" (fixed 365-class, no masks), "sam3" (open-vocab concept seg),
+# "yoloe" (open-vocab detect + seg), or "detecty" (custom RoboCup@Home
+# ensemble over the 30 official Incheon2026 objects, no masks — default).
+provider = "detecty"
 
 [object_detection.yolo]
 model = "YOLO26l-seg"
@@ -68,6 +69,15 @@ model = ""
 # Both auto-download by default.
 model = "yoloe-26l-seg.pt"
 pf_model = "yoloe-26l-seg-pf.pt"
+
+[object_detection.detecty]
+# Custom detector: Grounding DINO localize + DINOv3/colour/OCR ensemble classify
+# over the 30 official Incheon2026 objects. Bounding boxes only (no masks).
+device = ""                                   # "" = auto (cuda if available)
+use_ocr = true                                # brand-text twins (coke/red_bull…)
+protos = "weights/detecty_prototypes.npz"     # built on first load, then cached
+prototypes_dir = "third_party/detecty/prototypes"
+catalog_dir = "third_party/detecty/objects_gt"
 
 # ---------------------------------------------------------------------------
 # Pose estimation  (/pose-estimation/estimate)

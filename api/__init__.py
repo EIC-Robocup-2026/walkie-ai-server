@@ -21,7 +21,7 @@ def create_app() -> Flask:
             "models": {
                 "stt": section("stt").get("provider", "whisper"),
                 "tts": section("tts").get("provider", "piper"),
-                "object_detection": section("object_detection").get("provider", "yoloe"),
+                "object_detection": section("object_detection").get("provider", "detecty"),
                 "pose_estimation": section("pose_estimation").get("provider", "yolo_pose"),
                 "image_caption": section("image_caption").get("provider", "florence2-base"),
                 "image_embed": section("image_embed").get("provider", "clip"),
