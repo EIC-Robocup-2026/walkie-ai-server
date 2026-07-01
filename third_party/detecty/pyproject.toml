@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "detecty"
+version = "0.1.0"
+description = "Object detection pipeline for RoboCup@Home objects: Grounding DINO localization + DINOv3/colour/OCR ensemble classification, exposed as a callable API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "detecty" }]
+keywords = ["object-detection", "robocup", "dinov3", "grounding-dino", "ocr"]
+
+# Core deps for the detection pipeline (CPU-friendly).
+# Install torch/torchvision separately for your platform (see README).
+dependencies = [
+    "numpy",
+    "pillow",
+    "pyyaml",
+    "opencv-python-headless",
+    "timm>=1.0",            # DINOv3 backbone
+    "transformers>=4.40",   # Grounding DINO localizer
+]
+
+[project.optional-dependencies]
+ocr = ["easyocr"]            # OCR brand-matching (recommended)
+vlm = ["openai>=1.0"]        # optional Gemma/vLLM consult (off by default)
+all = ["easyocr", "openai>=1.0"]
+
+[project.scripts]
+detecty-build-prototypes = "detecty.build_prototypes:main"
+detecty-detect           = "detecty.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-org/detecty"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+detecty = ["data/*.yaml"]

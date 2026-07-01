@@ -3,6 +3,7 @@
 from typing import Any
 
 from ..base import ObjectDetectionProvider
+from .detecty import DetectyObjectDetectionProvider
 from .sam3 import SAM3ObjectDetectionProvider
 from .yolo import YOLOObjectDetectionProvider
 from .yoloe import YOLOEObjectDetectionProvider
@@ -11,6 +12,7 @@ PROVIDERS: dict[str, type[ObjectDetectionProvider]] = {
     "yolo": YOLOObjectDetectionProvider,
     "sam3": SAM3ObjectDetectionProvider,
     "yoloe": YOLOEObjectDetectionProvider,
+    "detecty": DetectyObjectDetectionProvider,
 }
 
 
