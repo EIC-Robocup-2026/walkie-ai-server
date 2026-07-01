@@ -91,17 +91,29 @@ model dir. The default stack therefore boots and serves with the network cut, as
 long as the weights are already present:
 
 - **HF cache** (`~/.cache/huggingface/hub`): `clip-vit-base-patch16`,
-  `Florence-2-base`, `Systran/faster-whisper-small`, `kaiyangzhou/osnet`.
+  `Florence-2-base`, `Systran/faster-whisper-small`, `kaiyangzhou/osnet`; and for
+  the `detecty` object-detection provider `IDEA-Research/grounding-dino-tiny`
+  (localizer) + `vit_large_patch16_dinov3.lvd1689m` (DINOv3 classifier).
 - **InsightFace** (`~/.insightface/models/buffalo_l/`).
+- **EasyOCR** (`~/.EasyOCR/model/`): detecty's brand-text models (en + ko).
 - **Repo root**: `yoloe-26l-seg.pt`, `yoloe-26l-seg-pf.pt`, `yolo26s-pose.pt`,
-  and the YOLOE text encoder `mobileclip_blt.ts`; plus `voices/…onnx` (Piper)
-  and the GraspNet checkout/checkpoint under `~/graspnet-baseline`.
+  and the YOLOE text encoder `mobileclip_blt.ts`; plus `voices/…onnx` (Piper),
+  the GraspNet checkout/checkpoint under `~/graspnet-baseline`, and detecty's
+  prototype bank `weights/detecty_prototypes.npz` (built from the bundled
+  reference images on first use).
 
 To **fetch or update** a model (or on a fresh box with a cold cache), run online
 once — this clears the offline switches so libraries may download again:
 
 ```bash
 WALKIE_OFFLINE=0 ./scripts/run_app.sh
+```
+
+For the `detecty` provider specifically, one command fetches its three models
+**and** builds the prototype bank, so the very first boot is instant and offline:
+
+```bash
+uv run python scripts/prefetch_detecty.py
 ```
 
 > ⚠️ The cloud providers — `google` (STT), `elevenlabs` (TTS), `google` (image

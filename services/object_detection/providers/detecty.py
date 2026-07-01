@@ -29,6 +29,12 @@ from ..base import DetectedObject, ObjectDetectionProvider
 # Repo root: services/object_detection/providers/detecty.py -> up 3 = repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# Default locations (repo-relative), shared with scripts/prefetch_detecty.py so
+# the warm-up script and the provider build/load the same prototype bank.
+DEFAULT_PROTOS = "weights/detecty_prototypes.npz"
+DEFAULT_PROTOTYPES_DIR = "third_party/detecty/prototypes"
+DEFAULT_CATALOG_DIR = "third_party/detecty/objects_gt"
+
 # Lazy import to avoid loading torch/transformers/timm until first use.
 _detecty_imported = False
 
@@ -100,14 +106,12 @@ class DetectyObjectDetectionProvider(ObjectDetectionProvider):
         self._quantize = bool(config.get("quantize_localizer", False))
         self._dino_model = config.get("dino_model")  # None -> detecty default
 
-        self._protos_path = _resolve(
-            str(config.get("protos", "weights/detecty_prototypes.npz"))
-        )
+        self._protos_path = _resolve(str(config.get("protos", DEFAULT_PROTOS)))
         self._prototypes_dir = _resolve(
-            str(config.get("prototypes_dir", "third_party/detecty/prototypes"))
+            str(config.get("prototypes_dir", DEFAULT_PROTOTYPES_DIR))
         )
         self._catalog_dir = _resolve(
-            str(config.get("catalog_dir", "third_party/detecty/objects_gt"))
+            str(config.get("catalog_dir", DEFAULT_CATALOG_DIR))
         )
 
         self._min_box = int(config.get("min_box", 8))
